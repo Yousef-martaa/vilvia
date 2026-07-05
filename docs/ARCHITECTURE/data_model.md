@@ -1,22 +1,22 @@
-# Firestore Data Model
+# PostgreSQL Data Model
 
 ## Purpose
 
-This document describes the initial Firestore data model for Vilvia.
+This document describes the initial PostgreSQL data model for Vilvia.
 
 The goal is to design a simple, scalable, and maintainable database structure that supports the MVP while allowing future features to be added without major structural changes.
 
 ---
 
-## Top-Level Collections
+## Tables
 
-The initial Firestore structure uses separate top-level collections for the main product areas.
+The initial PostgreSQL schema uses separate tables for the main product areas.
 
-This avoids placing all data under the user document and makes it easier to query shared data such as community posts and trusted resources.
+This keeps shared data separate from profile data and makes it easier to query community posts and trusted resources.
 
-Initial collections:
+Initial tables:
 
-- `users`
+- `profiles`
 - `resources`
 - `posts`
 - `comments`
@@ -24,16 +24,16 @@ Initial collections:
 
 ---
 
-## `users`
+## `profiles`
 
-The `users` collection stores account-related data and personalization settings.
+The `profiles` table stores account-related data and personalization settings.
 
-Each user document uses the Firebase Authentication user ID as the document ID.
+Each profile row is linked to the authenticated user using the Supabase Auth user ID.
 
 Example path:
 
 ```text
-users/{userId}
+profiles
 ```
 
 Example fields:
@@ -50,23 +50,23 @@ updatedAt: timestamp
 
 Notes:
 
-- Authentication is handled by Firebase Authentication.
-- Firestore stores only the profile and personalization data needed by the app.
-- User documents should remain small and focused.
-- Shared data such as posts and resources should not be stored under the user document.
+- Authentication is handled by Supabase Auth.
+- The profiles table stores only the profile and personalization data needed by the app.
+- Profile rows should remain small and focused.
+- Shared data such as posts and resources should not be stored in the profiles table.
 
 ---
 
 ## `resources`
 
-The `resources` collection stores trusted parenting resources used in the Information section.
+The `resources` table stores trusted parenting resources used in the Information section.
 
 Resources are separate from community posts because they are reviewed, structured, and based on trusted official sources.
 
 Example path:
 
 ```text
-resources/{resourceId}
+resources
 ```
 
 Example fields:
@@ -95,14 +95,14 @@ Notes:
 
 ## `posts`
 
-The `posts` collection stores community posts created by users.
+The `posts` table stores community posts created by users.
 
-Posts are stored as a top-level collection so the community feed can be queried efficiently without reading data from each user document.
+Posts are stored as a separate table so the community feed can be queried efficiently without reading data from the profiles table.
 
 Example path:
 
 ```text
-posts/{postId}
+posts
 ```
 
 Example fields:
@@ -127,22 +127,22 @@ Notes:
 
 - `authorId` links the post to the user who created it.
 - `authorName` and `authorAvatarUrl` are intentionally duplicated to improve feed performance.
-- This duplication follows a common Firestore denormalization pattern.
 - Community posts are user-generated content and should not be treated as trusted official information.
+- This duplication is intentional to reduce joins when displaying the community feed.
 - Posts may later link to trusted resources through `relatedResourceId`.
 
 ---
 
 ## `comments`
 
-The `comments` collection stores comments made on community posts.
+The `comments` table stores comments made on community posts.
 
-Comments are stored as a top-level collection to simplify moderation, reporting, and future features while keeping queries efficient.
+Comments are stored as a separate table to simplify moderation, reporting, and future features while keeping queries efficient.
 
 Example path:
 
 ```text
-comments/{commentId}
+comments
 ```
 
 Example fields:
@@ -170,14 +170,14 @@ Notes:
 
 ## `reports`
 
-The `reports` collection stores user reports for content that may require moderation.
+The `reports` table stores user reports for content that may require moderation.
 
-Reports are stored as a top-level collection so moderators can review all reported items from a single place.
+Reports are stored as a separate table so moderators can review all reported items from a single place.
 
 Example path:
 
 ```text
-reports/{reportId}
+reports
 ```
 
 Example fields:
@@ -198,14 +198,14 @@ Notes:
 - `targetId` stores the ID of the reported item.
 - `reportedBy` stores the user ID of the person who submitted the report.
 - `status` may include values such as `pending`, `reviewed`, or `dismissed`.
-- Keeping reports as a top-level collection makes future moderation tools easier to build.
+- Keeping reports in a separate table makes future moderation tools easier to build.
 
 ---
 
 ## Design Decisions
 
-- Use top-level collections for shared data.
-- Keep user documents focused on profile and personalization.
+- Use separate tables for shared data. 
+- Keep profile rows focused on profile and personalization.
 - Duplicate selected user fields in posts and comments to improve read performance.
 - Keep trusted resources separate from user-generated content.
 - Store reports separately to support future moderation tools.
