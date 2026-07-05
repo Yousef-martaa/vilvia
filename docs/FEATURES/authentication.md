@@ -6,7 +6,7 @@ Most of the content in Vilvia should be available without requiring users to cre
 
 The goal is to make it as easy as possible for new parents to access reliable information without adding unnecessary steps.
 
-An account only becomes necessary when a user wants to save personal data or interact with other members of the community.
+An account only becomes necessary when a user wants to participate in the community or personalize their experience.
 
 ---
 
@@ -29,8 +29,8 @@ Users need an account when they want to:
 - Create a post
 - Leave comments
 - Like or save content
-- Manage their own profile
-- Access future personalized features
+- Manage their profile and personalization settings
+- Access personalized content and future features
 
 ---
 
@@ -53,6 +53,8 @@ During registration, users will provide:
 - First name
 - Email address
 - Password
+
+After registration, users will complete a short onboarding process to personalize their experience.
 
 Additional profile information can be added later without changing the authentication flow.
 
