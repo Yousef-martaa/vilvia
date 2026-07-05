@@ -12,7 +12,7 @@ Families often live far apart, communities are less connected than they once wer
 
 Vilvia was created to help rebuild that village.
 
-It is a mobile application designed to support new parents in Sweden from pregnancy until their child reaches the age of three. Instead of replacing search engines or social media, Vilvia brings trusted information, local services, activities, and a supportive community together in one place.
+It is a mobile application designed to support new parents in Sweden from pregnancy until their child reaches the age of three. Instead of replacing search engines or social media, Vilvia combines a supportive parenting community with trusted information, local services, and activities in one place.
 
 The goal is simple: to make early parenthood feel a little less overwhelming and a little less lonely.
 
@@ -30,13 +30,16 @@ Helpful resources for new parents already exist, but they are spread across many
 
 This takes time, creates frustration, and can leave parents feeling isolated during one of the most important stages of their lives.
 
+Many parents are also looking for others who truly understand what they are going through, but those conversations are often scattered across different platforms.
+
+
 ---
 
 # Value Proposition
 
-Vilvia brings trusted parenting resources into a single application.
+Vilvia brings  together a supportive parenting community and trusted parenting resources in a single application.
 
-Instead of searching in multiple places, parents can find reliable information, discover relevant services and local activities, and connect with other parents who are experiencing the same stage of parenthood.
+Parents can ask questions, share experiences, discover relevant services and local activities, and access trusted information without jumping between multiple platforms.
 
 Vilvia helps parents find their village again.
 
@@ -48,9 +51,9 @@ The first release will focus exclusively on Sweden.
 
 The MVP will include:
 
-- Reliable parenting information
-- User accounts
-- A simple community for parents
+- A supportive parenting community
+- Trusted parenting information
+- User accounts for participation and personalization
 
 The following features are intentionally postponed to future releases:
 
