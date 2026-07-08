@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     app_name: str = "Vilvia"
     debug: bool = False
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/vilvia"
 
 
 settings = Settings()
