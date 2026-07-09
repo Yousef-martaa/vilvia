@@ -13,6 +13,7 @@ FastAPI backend for the Vilvia app. Connects to a PostgreSQL database.
 - PostgreSQL
 - psycopg (psycopg3)
 - pydantic-settings
+- Alembic
 - pytest
 
 ## Setup
@@ -37,6 +38,12 @@ uvicorn app.main:app --reload
 ```
 
 Server runs at `http://127.0.0.1:8000`.
+
+## Migrations
+
+```bash
+alembic upgrade head
+```
 
 ## Test
 
@@ -64,10 +71,11 @@ backend/
 - SQLAlchemy 2.x engine and session factory
 - PostgreSQL connection with psycopg3
 - Database models: `Profile`, `Resource`, `Post`, `Comment`, `Report`
+- Alembic migration setup
 
 ## Planned Next
 
-- Alembic database migrations
+- Initial database migration
 - API endpoints
 
 ## Endpoints
