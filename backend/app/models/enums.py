@@ -1,5 +1,7 @@
 import enum
 
+from sqlalchemy import Enum as SAEnum
+
 
 class UserRole(str, enum.Enum):
     parent = "parent"
@@ -49,3 +51,7 @@ class ReportStatus(str, enum.Enum):
     pending = "pending"
     reviewed = "reviewed"
     dismissed = "dismissed"
+
+
+def str_enum(enum_class):
+    return SAEnum(enum_class, native_enum=False, values_callable=lambda enum_class: [member.value for member in enum_class])
