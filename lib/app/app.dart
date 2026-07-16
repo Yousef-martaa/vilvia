@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:vilvia/features/information/presentation/screens/resources_screen.dart';
+
 class VilviaApp extends StatelessWidget {
   const VilviaApp({super.key});
 
@@ -7,11 +9,7 @@ class VilviaApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return const MaterialApp(
       title: 'Vilvia',
-      home: Scaffold(
-        body: Center(
-          child: Text('Vilvia'),
-        ),
-      ),
+      home: ResourcesScreen(),
     );
   }
 }
