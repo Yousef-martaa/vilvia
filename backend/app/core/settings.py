@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     app_name: str = "Vilvia"
     debug: bool = False
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/vilvia"
+    cors_origins: list[str] = []
+    cors_origin_regex: str | None = r"^http://localhost:\d+$"
 
 
 settings = Settings()
