@@ -6,15 +6,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vilvia/features/information/data/information_api_client.dart';
 import 'package:vilvia/features/information/data/resource.dart';
 import 'package:vilvia/features/information/presentation/screens/resources_screen.dart';
+import 'package:vilvia/features/information/presentation/widgets/stage_filter_chips.dart';
 
 // --- Stub helpers ---
 
-Resource _fakeResource({String title = 'Test Resource'}) => Resource(
+Resource _fakeResource({
+  String title = 'Test Resource',
+  String stage = 'pregnancy',
+}) =>
+    Resource(
       id: '1',
       title: title,
       summary: 'A summary',
       category: 'child_development',
-      stage: 'pregnancy',
+      stage: stage,
       sourceName: 'Source',
       sourceUrl: 'https://example.com',
       createdAt: DateTime(2024),
@@ -64,7 +69,10 @@ void main() {
 
     expect(find.text('Sleep Guide'), findsOneWidget);
     expect(find.text('A summary'), findsOneWidget);
-    expect(find.text('child_development · pregnancy'), findsOneWidget);
+    expect(find.text('Child Development'), findsOneWidget);
+    // "Pregnancy" appears twice: once as the stage filter chip, once as the
+    // resource's stage tag on the card.
+    expect(find.text('Pregnancy'), findsNWidgets(2));
   });
 
   testWidgets('shows empty message when list is empty', (tester) async {
@@ -98,6 +106,43 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(() => tester.pumpWidget(const SizedBox()), returnsNormally);
+  });
+
+  testWidgets('shows all resources by default with "All" filter selected',
+      (tester) async {
+    final client = _StubApiClient(
+      () async => [
+        _fakeResource(title: 'Pregnancy Resource', stage: 'pregnancy'),
+        _fakeResource(title: 'Newborn Resource', stage: 'newborn'),
+      ],
+    );
+    await tester.pumpWidget(wrap(client));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pregnancy Resource'), findsOneWidget);
+    expect(find.text('Newborn Resource'), findsOneWidget);
+  });
+
+  testWidgets('tapping a stage filter chip shows only matching resources',
+      (tester) async {
+    final client = _StubApiClient(
+      () async => [
+        _fakeResource(title: 'Pregnancy Resource', stage: 'pregnancy'),
+        _fakeResource(title: 'Newborn Resource', stage: 'newborn'),
+      ],
+    );
+    await tester.pumpWidget(wrap(client));
+    await tester.pumpAndSettle();
+
+    final newbornChip = find.descendant(
+      of: find.byType(StageFilterChips),
+      matching: find.text('Newborn'),
+    );
+    await tester.tap(newbornChip);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Newborn Resource'), findsOneWidget);
+    expect(find.text('Pregnancy Resource'), findsNothing);
   });
 
   testWidgets('retry button reloads and shows resources', (tester) async {

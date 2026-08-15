@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:vilvia/features/information/data/information_api_client.dart';
 import 'package:vilvia/features/information/data/resource.dart';
+import 'package:vilvia/features/information/presentation/widgets/resource_card.dart';
+import 'package:vilvia/features/information/presentation/widgets/stage_filter_chips.dart';
+import 'package:vilvia/theme/vilvia_colors.dart';
 
 class ResourcesScreen extends StatefulWidget {
   final InformationApiClient? apiClient;
@@ -18,6 +21,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
   List<Resource>? _resources;
   bool _isLoading = true;
   String? _error;
+  String? _selectedStage;
 
   @override
   void initState() {
@@ -57,13 +61,42 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Resources')),
-      body: _buildBody(),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Resources', style: textTheme.headlineLarge),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Explore helpful articles and guides for every '
+                        'stage of your parenting journey.',
+                        style: textTheme.bodyLarge
+                            ?.copyWith(color: VilviaColors.gray),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(child: _buildBody(textTheme)),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(TextTheme textTheme) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -73,7 +106,10 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('Failed to load resources.'),
+            Text(
+              'Failed to load resources.',
+              style: textTheme.bodyLarge?.copyWith(color: VilviaColors.gray),
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadResources,
@@ -86,25 +122,48 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
 
     final resources = _resources ?? [];
     if (resources.isEmpty) {
-      return const Center(child: Text('No resources available.'));
+      return Center(
+        child: Text(
+          'No resources available.',
+          style: textTheme.bodyLarge?.copyWith(color: VilviaColors.gray),
+        ),
+      );
     }
 
-    return ListView.builder(
-      itemCount: resources.length,
-      itemBuilder: (context, index) {
-        final resource = resources[index];
-        return ListTile(
-          title: Text(resource.title),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(resource.summary),
-              Text('${resource.category} · ${resource.stage}'),
-            ],
+    final filtered = _selectedStage == null
+        ? resources
+        : resources.where((r) => r.stage == _selectedStage).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: StageFilterChips(
+            selectedStage: _selectedStage,
+            onStageSelected: (stage) =>
+                setState(() => _selectedStage = stage),
           ),
-          isThreeLine: true,
-        );
-      },
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Text(
+                    'No resources available.',
+                    style: textTheme.bodyLarge
+                        ?.copyWith(color: VilviaColors.gray),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) =>
+                      ResourceCard(resource: filtered[index]),
+                ),
+        ),
+      ],
     );
   }
 }
