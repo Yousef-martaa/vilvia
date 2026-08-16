@@ -18,3 +18,14 @@ class ResourceResponse(BaseModel):
     source_url: str
     created_at: datetime
     updated_at: datetime
+
+
+class ResourceDetailResponse(ResourceResponse):
+    """The single-resource response, used only by GET /resources/{id}.
+
+    Includes the full article body -- deliberately excluded from
+    ResourceResponse/GET /resources so the list endpoint stays lightweight
+    as the catalog grows.
+    """
+
+    body: str

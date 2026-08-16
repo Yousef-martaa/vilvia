@@ -16,6 +16,7 @@ def make_mock_resource(**kwargs):
     resource.id = kwargs.get("id", uuid.uuid4())
     resource.title = kwargs.get("title", "Test Resource")
     resource.summary = kwargs.get("summary", "A short summary")
+    resource.body = kwargs.get("body", "The full article body.")
     resource.category = kwargs.get("category", "child_development")
     resource.stage = kwargs.get("stage", "pregnancy")
     resource.source_name = kwargs.get("source_name", "Health Authority")
@@ -72,3 +73,57 @@ def test_get_resources_query_filters_published_and_orders_by_created_at():
     sql = str(stmt).lower()
     assert "is_published is true" in sql
     assert "created_at desc" in sql
+
+
+def mock_db_returning_one(resource):
+    mock_db = MagicMock()
+    mock_db.execute.return_value.scalar_one_or_none.return_value = resource
+    app.dependency_overrides[get_db] = lambda: mock_db
+    return mock_db
+
+
+def test_get_resource_returns_full_resource_including_body():
+    resource = make_mock_resource(body="The full article body, in detail.")
+    mock_db_returning_one(resource)
+
+    response = client.get(f"/resources/{resource.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(resource.id)
+    assert data["title"] == resource.title
+    assert data["body"] == "The full article body, in detail."
+    assert data["source_name"] == resource.source_name
+    assert data["source_url"] == resource.source_url
+
+
+def test_get_resource_returns_404_when_not_found():
+    mock_db_returning_one(None)
+
+    response = client.get(f"/resources/{uuid.uuid4()}")
+
+    assert response.status_code == 404
+
+
+def test_get_resource_returns_404_when_unpublished():
+    # The router filters is_published in the query itself, so an
+    # unpublished resource looks identical to a nonexistent one here --
+    # scalar_one_or_none() returns None either way.
+    mock_db_returning_one(None)
+
+    response = client.get(f"/resources/{uuid.uuid4()}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Resource not found"
+
+
+def test_get_resource_query_filters_by_id_and_published():
+    resource_id = uuid.uuid4()
+    mock_db = mock_db_returning_one(None)
+
+    client.get(f"/resources/{resource_id}")
+
+    stmt = mock_db.execute.call_args[0][0]
+    sql = str(stmt).lower()
+    assert "is_published is true" in sql
+    assert "resources.id" in sql
