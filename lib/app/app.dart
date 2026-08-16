@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:vilvia/features/information/presentation/screens/resources_screen.dart';
+import 'package:vilvia/features/home/presentation/screens/home_screen.dart';
 import 'package:vilvia/theme/vilvia_theme.dart';
 
 class VilviaApp extends StatelessWidget {
@@ -11,7 +11,7 @@ class VilviaApp extends StatelessWidget {
     return MaterialApp(
       title: 'Vilvia',
       theme: VilviaTheme.light(),
-      home: const ResourcesScreen(),
+      home: const HomeScreen(),
     );
   }
 }
