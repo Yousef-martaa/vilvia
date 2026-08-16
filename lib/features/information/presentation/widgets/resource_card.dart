@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:vilvia/features/information/data/resource.dart';
 import 'package:vilvia/features/information/presentation/resource_labels.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
+import 'package:vilvia/widgets/tinted_icon_badge.dart';
 
 /// A single resource row, styled per the approved Resources mockup
 /// (design/home-reference.png): a tinted category icon, colored
@@ -33,7 +34,7 @@ class ResourceCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _CategoryIcon(style: style),
+          TintedIconBadge(icon: style.icon, color: style.color),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -68,25 +69,6 @@ class ResourceCard extends StatelessWidget {
           const Icon(Icons.chevron_right, color: VilviaColors.gray),
         ],
       ),
-    );
-  }
-}
-
-class _CategoryIcon extends StatelessWidget {
-  const _CategoryIcon({required this.style});
-
-  final CategoryStyle style;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: style.color.withValues(alpha: 0.15),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(style.icon, color: style.color),
     );
   }
 }
