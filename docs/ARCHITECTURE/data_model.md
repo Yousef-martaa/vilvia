@@ -87,7 +87,11 @@ updatedAt: timestamp
 Notes:
 
 - Resources should be available without requiring an account.
-- Resources should be reviewed before publication.
+- Vilvia-authored/editorial resources should be reviewed before publication.
+  Resources synced from an explicitly approved trusted provider (e.g.
+  MedlinePlus) may auto-publish (`isPublished: true`) as long as
+  `sourceName`/`sourceUrl` attribution is preserved — see
+  `docs/FEATURES/parenting_information.md`.
 - Community discussions may later link to related resources.
 - AI-assisted features should rely on trusted resources rather than user-generated content.
 

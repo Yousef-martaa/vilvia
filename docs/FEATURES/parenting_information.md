@@ -46,6 +46,18 @@ The MVP should include information such as:
 - Articles should be written in simple language.
 - Content should be reviewed before publication.
 
+Vilvia sources content two ways, with different publication rules:
+
+- **Vilvia-authored/editorial content**: written or curated directly by the
+  Vilvia team. Requires manual review before publication.
+- **Explicitly approved trusted providers** (e.g. MedlinePlus): official
+  public health sources integrated via a backend provider adapter. Content
+  from an explicitly approved provider may auto-publish without manual
+  per-article review, provided clear source attribution (source name and
+  original URL) is always shown. A provider must be explicitly approved
+  before this applies — auto-publishing is a property of the provider
+  integration itself, not a default for any external source.
+
 ## Future Considerations
 
 Future versions may include:
