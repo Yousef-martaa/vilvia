@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:vilvia/features/information/data/information_api_client.dart';
 import 'package:vilvia/features/information/data/resource.dart';
+import 'package:vilvia/features/information/presentation/screens/resource_details_screen.dart';
 import 'package:vilvia/features/information/presentation/screens/resources_screen.dart';
 import 'package:vilvia/features/information/presentation/widgets/stage_filter_chips.dart';
 
@@ -143,6 +144,24 @@ void main() {
 
     expect(find.text('Newborn Resource'), findsOneWidget);
     expect(find.text('Pregnancy Resource'), findsNothing);
+  });
+
+  testWidgets('tapping a resource card navigates to ResourceDetailsScreen',
+      (tester) async {
+    final resource = _fakeResource(title: 'Sleep Guide');
+    final client = _StubApiClient(() async => [resource]);
+    await tester.pumpWidget(wrap(client));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sleep Guide'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(ResourceDetailsScreen), findsOneWidget);
+    final details = tester.widget<ResourceDetailsScreen>(
+      find.byType(ResourceDetailsScreen),
+    );
+    expect(details.resourceId, resource.id);
   });
 
   testWidgets('retry button reloads and shows resources', (tester) async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:vilvia/features/information/data/information_api_client.dart';
 import 'package:vilvia/features/information/data/resource.dart';
+import 'package:vilvia/features/information/presentation/screens/resource_details_screen.dart';
 import 'package:vilvia/features/information/presentation/widgets/resource_card.dart';
 import 'package:vilvia/features/information/presentation/widgets/stage_filter_chips.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
@@ -159,8 +160,18 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                   itemCount: filtered.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) =>
-                      ResourceCard(resource: filtered[index]),
+                  itemBuilder: (context, index) {
+                    final resource = filtered[index];
+                    return ResourceCard(
+                      resource: resource,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              ResourceDetailsScreen(resourceId: resource.id),
+                        ),
+                      ),
+                    );
+                  },
                 ),
         ),
       ],

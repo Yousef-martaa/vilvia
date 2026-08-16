@@ -79,6 +79,56 @@ void main() {
     });
   });
 
+  Map<String, dynamic> resourceDetailJson({String body = 'The full body.'}) => {
+        ...resourceJson(),
+        'body': body,
+      };
+
+  group('InformationApiClient.getResource', () {
+    test('parses a successful response including the body', () async {
+      final client = MockClient(
+        (request) async {
+          expect(request.url.path, '/resources/abc-123');
+          return http.Response(jsonEncode(resourceDetailJson()), 200);
+        },
+      );
+      final api = InformationApiClient(client: client, baseUrl: testBaseUrl);
+
+      final detail = await api.getResource('abc-123');
+
+      expect(detail.resource.title, 'Test Resource');
+      expect(detail.resource.sourceName, 'Health Authority');
+      expect(detail.body, 'The full body.');
+    });
+
+    test('throws on 404 (not found or unpublished)', () async {
+      final client = MockClient(
+        (_) async => http.Response('Not Found', 404),
+      );
+      final api = InformationApiClient(client: client, baseUrl: testBaseUrl);
+
+      expect(api.getResource('missing-id'), throwsException);
+    });
+
+    test('throws on non-200 response', () async {
+      final client = MockClient(
+        (_) async => http.Response('Internal Server Error', 500),
+      );
+      final api = InformationApiClient(client: client, baseUrl: testBaseUrl);
+
+      expect(api.getResource('abc-123'), throwsException);
+    });
+
+    test('throws on invalid JSON shape (not an object)', () async {
+      final client = MockClient(
+        (_) async => http.Response(jsonEncode([1, 2, 3]), 200),
+      );
+      final api = InformationApiClient(client: client, baseUrl: testBaseUrl);
+
+      expect(api.getResource('abc-123'), throwsException);
+    });
+  });
+
   group('InformationApiClient.close', () {
     test('does not close an injected client', () {
       final tracking = _TrackingClient();

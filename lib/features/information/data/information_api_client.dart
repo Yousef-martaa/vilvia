@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'package:vilvia/core/constants/api_constants.dart';
 import 'package:vilvia/features/information/data/resource.dart';
+import 'package:vilvia/features/information/data/resource_detail.dart';
 
 class InformationApiClient {
   final http.Client _client;
@@ -37,5 +38,20 @@ class InformationApiClient {
         .cast<Map<String, dynamic>>()
         .map(Resource.fromJson)
         .toList();
+  }
+
+  Future<ResourceDetail> getResource(String id) async {
+    final response = await _client.get(Uri.parse('$_baseUrl/resources/$id'));
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load resource: ${response.statusCode}');
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Invalid response: expected a JSON object');
+    }
+
+    return ResourceDetail.fromJson(decoded);
   }
 }
