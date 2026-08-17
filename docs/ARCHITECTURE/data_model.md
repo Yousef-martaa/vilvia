@@ -18,6 +18,7 @@ Initial tables:
 
 - `profiles`
 - `resources`
+- `events`
 - `posts`
 - `comments`
 - `reports`
@@ -94,6 +95,38 @@ Notes:
   `docs/FEATURES/parenting_information.md`.
 - Community discussions may later link to related resources.
 - AI-assisted features should rely on trusted resources rather than user-generated content.
+
+---
+
+## `events`
+
+The `events` table stores upcoming events and meetups relevant to parents and families, shown in the Events section.
+
+Example path:
+
+```text
+events
+```
+
+Example fields:
+
+```text
+title: string
+description: string
+location: string
+startsAt: timestamp (timezone-aware)
+endsAt: timestamp (timezone-aware) | null
+isPublished: boolean
+createdAt: timestamp
+updatedAt: timestamp
+```
+
+Notes:
+
+- Events should be available without requiring an account.
+- `startsAt` and `endsAt` are timezone-aware timestamps (stored as `timestamptz`), not naive dates or display strings, so filtering and ordering stay correct regardless of server or client timezone.
+- The normal events list only returns published events whose `startsAt` is still in the future (`startsAt >= now`), ordered soonest first. Past events are not returned by this endpoint.
+- Vilvia-authored/editorial events should be reviewed before publication, the same as resources — see `docs/FEATURES/events.md`.
 
 ---
 

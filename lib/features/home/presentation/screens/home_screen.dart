@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 
+import 'package:vilvia/features/home/presentation/widgets/explore_events_button.dart';
 import 'package:vilvia/features/home/presentation/widgets/explore_resources_button.dart';
 import 'package:vilvia/features/home/presentation/widgets/home_header.dart';
 import 'package:vilvia/features/home/presentation/widgets/hero_section.dart';
 
-/// The Home screen (Issue #57). Deliberately minimal for the MVP: the
-/// approved logo, hero illustration and hero copy, and one real, working
-/// entry point into the existing Resources feature. Earlier drafts also
-/// showed a search bar, quick-action shortcuts, an "Upcoming" event card,
-/// an "Active Circles" list, and a five-tab bottom navigation bar — all
-/// removed because they had no backend behind them and only Resources is
-/// implemented. See the PR description for the full rationale.
+/// The Home screen (Issue #57, extended by Issue #63). Deliberately
+/// minimal for the MVP: the approved logo, hero illustration and hero
+/// copy, and one real, working entry point per implemented feature
+/// (Resources, Events). Earlier drafts also showed a search bar,
+/// quick-action shortcuts, a fake "Upcoming" event card, an "Active
+/// Circles" list, and a five-tab bottom navigation bar — all removed
+/// because they had no backend behind them. Only entry points for
+/// features that actually exist get added here.
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
@@ -29,6 +31,8 @@ class HomeScreen extends StatelessWidget {
                 const HeroSection(),
                 const SizedBox(height: 24),
                 const ExploreResourcesButton(),
+                const SizedBox(height: 12),
+                const ExploreEventsButton(),
               ],
             ),
           ),
