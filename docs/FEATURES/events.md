@@ -9,7 +9,7 @@ Unlike Resources, Events is a community/product feature, not primarily trusted e
 1. **User-created community events** — registered Vilvia users creating and hosting their own events.
 2. **Vilvia/admin-curated official events** — real events happening in Sweden, curated by the Vilvia team.
 
-Both origins are first-class; neither is a fallback for the other. Issue #63 establishes the Events list/API/UI foundation only — it does not implement event creation, attendance, or either content pipeline.
+Both origins are first-class; neither is a fallback for the other. Issue #63 established the Events list/API/UI foundation, and Issue #65 added an optional ownership column at the domain/DB layer. Neither implements event creation, attendance, or either content pipeline end to end.
 
 ## MVP Scope
 
@@ -25,14 +25,16 @@ Both origins are first-class; neither is a fallback for the other. Issue #63 est
 - Loading, empty, and error/retry states.
 - A `GET /events` endpoint on Vilvia's own API, returning only published events whose start time is still in the future.
 - An "Explore Events" entry point on Home, alongside the existing Explore Resources entry point.
+- A database-level ownership foundation: `Event.created_by`, an optional (nullable) foreign key to `profiles.id` with `ON DELETE SET NULL`, reusing the existing Profile/user architecture rather than a parallel creator model. This is **domain/DB scaffolding only** — `created_by` is not currently exposed via `GET /events`, and there is no way yet to actually create an event with one set (see Out of Scope). It exists so a later Create-Event issue has somewhere to attach ownership without a migration that reshapes the table.
 
 This is a **list/API/UI foundation only**. No event content pipeline (user-created or admin-curated) exists yet — see Seed / Development Data below for what actually populates the list today.
 
-## Out of Scope for This Issue
+## Out of Scope (Not Yet Implemented)
 
 - Event Details screen
-- Creating events (user-created events)
-- Attendance / "Going"
+- Creating events (user-created events) — from Flutter or otherwise
+- Editing or deleting events
+- Attendance / "Going", attendee counts or attendee lists
 - Maps
 - Favorites
 - Notifications
@@ -48,19 +50,20 @@ Real production content will come from two places once they're built: Vilvia/adm
 
 ## Planned Future Schema (documentation only — not implemented)
 
-To support both event origins without a second event system, the `Event` model is expected to grow, additively, in a later issue:
+`Event.created_by` (Issue #65) is implemented as **optional ownership information only**. It intentionally does **not** distinguish official/Vilvia-curated events from user-created ones — a community event's `created_by` can also become `null` if its creator's profile is later deleted (`ON DELETE SET NULL`), so `null` would be an unreliable, misleading signal for "this is official." If an explicit official-vs-user-created distinction is ever needed, it should be modeled as its own field, added later against a real product requirement — not inferred from `created_by` being unset.
 
-- `Event` may gain `created_by` (nullable reference to `profiles.id`): populated for user-created events; left unset for Vilvia/admin-curated events, or set to the curating admin's profile. "Official" vs. "user-created" is not expected to need its own column — it falls out of `created_by` together with the existing `Profile.role` (`parent`/`admin`).
+The rest of the `Event` model is still expected to grow, additively, in later issues:
+
 - A new `EventAttendance` table is expected to represent attendance ("Going"): `event_id`, `user_id`, plus standard timestamps. Attendee counts and (subject to future privacy decisions) visible attendee lists would be derived from this table.
 - Moderation of user-created events is expected to reuse the existing `reports` table (adding `event` to `ReportTargetType`), the same pattern already used for `posts`/`comments`, rather than a new status field on `Event`.
 
-None of this is implemented now. These columns/tables are not being added in Issue #63 — they're documented here so the current, unmodified `Event` model can be evaluated against where it's headed, and so a later issue doesn't need to rediscover this shape from scratch.
+None of this is implemented now. These are documented here so the current `Event` model can be evaluated against where it's headed, and so a later issue doesn't need to rediscover this shape from scratch.
 
 ## Future Considerations
 
 Future versions may include:
 
-- Event creation by registered users, with authenticated ownership (`created_by`)
+- Event creation by registered users (the `created_by` ownership column already exists as of Issue #65; the creation flow, auth wiring, and exposing ownership via the API do not)
 - Attendance / "Going", with attendee counts
 - Visible attendee lists, subject to future privacy/product decisions
 - Vilvia/admin curation workflows for official events
