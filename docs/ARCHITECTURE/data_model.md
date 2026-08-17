@@ -116,6 +116,7 @@ description: string
 location: string
 startsAt: timestamp (timezone-aware)
 endsAt: timestamp (timezone-aware) | null
+createdBy: uuid (references profiles.id) | null
 isPublished: boolean
 createdAt: timestamp
 updatedAt: timestamp
@@ -127,6 +128,7 @@ Notes:
 - `startsAt` and `endsAt` are timezone-aware timestamps (stored as `timestamptz`), not naive dates or display strings, so filtering and ordering stay correct regardless of server or client timezone.
 - The normal events list only returns published events whose `startsAt` is still in the future (`startsAt >= now`), ordered soonest first. Past events are not returned by this endpoint.
 - Vilvia-authored/editorial events should be reviewed before publication, the same as resources — see `docs/FEATURES/events.md`.
+- `createdBy` is optional ownership information only — a real foreign key to `profiles.id` with `ON DELETE SET NULL`, so a community event survives if its creator's profile is later deleted. `createdBy` being `null` means only "no creator is recorded"; it is **not** an official-vs-user-created discriminator (a community event can legitimately end up with `createdBy: null` this same way). An explicit origin/type distinction, if one becomes necessary, belongs in its own field, added when a real product requirement needs it. `createdBy` is not currently exposed via `GET /events`.
 
 ---
 

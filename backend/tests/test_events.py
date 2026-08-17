@@ -20,6 +20,7 @@ def make_mock_event(**kwargs):
     event.location = kwargs.get("location", "Community Centre")
     event.starts_at = kwargs.get("starts_at", now + timedelta(days=1))
     event.ends_at = kwargs.get("ends_at", now + timedelta(days=1, hours=2))
+    event.created_by = kwargs.get("created_by", None)
     event.is_published = kwargs.get("is_published", True)
     event.created_at = kwargs.get("created_at", now)
     event.updated_at = kwargs.get("updated_at", now)
@@ -52,6 +53,20 @@ def test_get_events_returns_list():
     assert data[0]["title"] == event.title
     assert data[0]["location"] == event.location
     assert data[0]["description"] == event.description
+
+
+def test_get_events_does_not_expose_created_by():
+    # Issue #65 establishes ownership at the domain/DB layer only; the
+    # public list contract is deliberately unchanged until something
+    # actually needs creator information.
+    event = make_mock_event(created_by=uuid.uuid4())
+    mock_db_returning([event])
+
+    response = client.get("/events")
+
+    data = response.json()
+    assert "created_by" not in data[0]
+    assert "creator_name" not in data[0]
 
 
 def test_get_events_empty_returns_empty_list():
