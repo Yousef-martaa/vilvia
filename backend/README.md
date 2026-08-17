@@ -2,6 +2,10 @@
 
 FastAPI backend for the Vilvia app. Connects to a PostgreSQL database.
 
+> To run this alongside the Flutter frontend with one command, see
+> `./dev.sh` in the repo root (documented in the root `README.md`). The
+> instructions below run the backend on its own.
+
 ## Prerequisites
 
 - Python 3.13
