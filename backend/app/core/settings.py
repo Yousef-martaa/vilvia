@@ -10,11 +10,6 @@ class Settings(BaseSettings):
     cors_origins: list[str] = []
     cors_origin_regex: str | None = r"^http://localhost:\d+$"
 
-    # Supabase Auth: only the project URL is needed. Verification uses the
-    # project's public JWKS endpoint (derived from this URL) -- no secret
-    # or service-role key is required for verifying tokens.
-    supabase_url: str = "https://project-id.supabase.co"
-
     # MedlinePlus Web Service (https://medlineplus.gov/about/developers/webservices/)
     medlineplus_base_url: str = "https://wsearch.nlm.nih.gov/ws/query"
     medlineplus_tool_name: str = "Vilvia"

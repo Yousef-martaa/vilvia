@@ -51,8 +51,7 @@ updatedAt: timestamp
 
 Notes:
 
-- Authentication is handled by Supabase Auth; the backend verifies Supabase-issued access tokens directly against the project's public JWT signing keys (no service-role key needed) rather than trusting any client-supplied identity.
-- A profile row is not created automatically just by authenticating. It is provisioned explicitly via `POST /me/bootstrap` (idempotent, id/email from the verified token, first name from the request body, `role` always `parent`) — see `docs/FEATURES/authentication.md`.
+- Authentication is handled by Supabase Auth.
 - The profiles table stores only the profile and personalization data needed by the app.
 - Profile rows should remain small and focused.
 - Shared data such as posts and resources should not be stored in the profiles table.
