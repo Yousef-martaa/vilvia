@@ -65,3 +65,24 @@ Additional profile information can be added later without changing the authentic
 Authentication should stay as simple as possible.
 
 The purpose is to support the experience, not become a barrier before parents can start using the app.
+
+---
+
+## Implementation (Issue #67)
+
+Email/password via Supabase Auth, verified backend-side using the project's
+public JWT signing keys (JWKS) -- no service-role/secret key involved.
+`get_current_user` verifies a token (signature, issuer, expiry, audience,
+and that it's an ordinary authenticated-user session, not an anon/service
+key) and returns that identity only; it never touches the database.
+
+Profile provisioning is a separate, explicit step: `POST /me/bootstrap`
+creates the caller's `Profile` (id and email from the verified identity,
+first name from the request body, role always `parent`) if one doesn't
+exist yet, and is safe to call more than once. `GET /me` is read-only and
+returns 404 if no Profile exists yet -- it never creates one.
+
+Home, Resources, and Events remain fully usable without signing in.
+
+Still not implemented: password reset, email change, social login, MFA,
+profile editing, and no existing screen is gated behind authentication.

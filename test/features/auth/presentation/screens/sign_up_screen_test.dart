@@ -1,0 +1,135 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'package:vilvia/features/auth/data/auth_service.dart';
+import 'package:vilvia/features/auth/data/profile.dart';
+import 'package:vilvia/features/auth/data/profile_api_client.dart';
+import 'package:vilvia/features/auth/presentation/screens/sign_up_screen.dart';
+
+User _fakeUser({String email = 'parent@example.com'}) => User(
+      id: 'user-1',
+      appMetadata: const {},
+      userMetadata: const {},
+      aud: 'authenticated',
+      createdAt: '2024-01-01T00:00:00Z',
+      email: email,
+    );
+
+Session _fakeSession({String email = 'parent@example.com'}) => Session(
+      accessToken: 'fake-access-token',
+      tokenType: 'bearer',
+      user: _fakeUser(email: email),
+    );
+
+class _FakeAuthService extends AuthService {
+  _FakeAuthService({this.signUpResult, this.signUpError});
+
+  final AuthResponse? signUpResult;
+  final Object? signUpError;
+
+  @override
+  Future<AuthResponse> signUp({
+    required String email,
+    required String password,
+  }) async {
+    if (signUpError != null) throw signUpError!;
+    return signUpResult!;
+  }
+}
+
+class _FakeProfileApiClient extends ProfileApiClient {
+  _FakeProfileApiClient() : super(accessToken: () => null);
+
+  bool bootstrapCalled = false;
+  String? bootstrapFirstName;
+
+  @override
+  Future<Profile> bootstrap({required String firstName}) async {
+    bootstrapCalled = true;
+    bootstrapFirstName = firstName;
+    return Profile(
+      id: 'user-1',
+      firstName: firstName,
+      email: 'parent@example.com',
+      role: 'parent',
+      createdAt: DateTime(2024),
+      updatedAt: DateTime(2024),
+    );
+  }
+}
+
+void main() {
+  Widget wrap(AuthService authService, ProfileApiClient profileApiClient) {
+    return MaterialApp(
+      home: SignUpScreen(
+        authService: authService,
+        profileApiClient: profileApiClient,
+      ),
+    );
+  }
+
+  Future<void> fillForm(WidgetTester tester) async {
+    await tester.enterText(
+      find.widgetWithText(TextField, 'First name'),
+      'Rowan',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Email'),
+      'rowan@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Password'),
+      'password123',
+    );
+  }
+
+  testWidgets(
+      'signing up with an immediate session bootstraps the profile with the entered name',
+      (tester) async {
+    final authService = _FakeAuthService(
+      signUpResult: AuthResponse(session: _fakeSession()),
+    );
+    final profileClient = _FakeProfileApiClient();
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await fillForm(tester);
+    await tester.tap(find.text('Sign Up'));
+    await tester.pumpAndSettle();
+
+    expect(profileClient.bootstrapCalled, isTrue);
+    expect(profileClient.bootstrapFirstName, 'Rowan');
+  });
+
+  testWidgets(
+      'signing up with no session (email confirmation pending) shows a check-your-email state and does not bootstrap',
+      (tester) async {
+    final authService = _FakeAuthService(
+      signUpResult: AuthResponse(user: _fakeUser()),
+    );
+    final profileClient = _FakeProfileApiClient();
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await fillForm(tester);
+    await tester.tap(find.text('Sign Up'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Check your email'), findsOneWidget);
+    expect(profileClient.bootstrapCalled, isFalse);
+  });
+
+  testWidgets('shows an error message when sign up fails', (tester) async {
+    final authService = _FakeAuthService(
+      signUpError: Exception('Email already registered'),
+    );
+    final profileClient = _FakeProfileApiClient();
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await fillForm(tester);
+    await tester.tap(find.text('Sign Up'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Email already registered'), findsOneWidget);
+    expect(profileClient.bootstrapCalled, isFalse);
+  });
+}

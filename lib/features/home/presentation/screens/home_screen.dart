@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:vilvia/features/auth/data/auth_service.dart';
 import 'package:vilvia/features/home/presentation/widgets/explore_events_button.dart';
 import 'package:vilvia/features/home/presentation/widgets/explore_resources_button.dart';
 import 'package:vilvia/features/home/presentation/widgets/home_header.dart';
@@ -14,7 +15,9 @@ import 'package:vilvia/features/home/presentation/widgets/hero_section.dart';
 /// because they had no backend behind them. Only entry points for
 /// features that actually exist get added here.
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.authService});
+
+  final AuthService? authService;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +29,7 @@ class HomeScreen extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               children: [
-                const HomeHeader(),
+                HomeHeader(authService: authService),
                 const SizedBox(height: 20),
                 const HeroSection(),
                 const SizedBox(height: 24),
