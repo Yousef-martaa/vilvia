@@ -1,12 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:vilvia/features/auth/data/auth_service.dart';
 import 'package:vilvia/features/events/presentation/screens/events_screen.dart';
 import 'package:vilvia/features/home/presentation/screens/home_screen.dart';
 import 'package:vilvia/features/information/presentation/screens/resources_screen.dart';
 
+// Home renders a sign-in-state affordance backed by AuthService, which by
+// default reaches Supabase.instance -- never initialized in tests. A
+// no-session fake avoids that without needing a real Supabase project.
+class _FakeAuthService extends AuthService {
+  @override
+  Session? get currentSession => null;
+
+  @override
+  Stream<AuthState> get onAuthStateChange => const Stream.empty();
+}
+
 void main() {
-  Widget wrap() => const MaterialApp(home: HomeScreen());
+  Widget wrap() => MaterialApp(home: HomeScreen(authService: _FakeAuthService()));
 
   testWidgets('shows the hero headline', (tester) async {
     await tester.pumpWidget(wrap());
