@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:vilvia/features/events/presentation/screens/events_screen.dart';
 import 'package:vilvia/features/home/presentation/screens/home_screen.dart';
 import 'package:vilvia/features/information/presentation/screens/resources_screen.dart';
 
@@ -32,5 +33,20 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.byType(ResourcesScreen), findsOneWidget);
+  });
+
+  testWidgets('tapping Explore Events navigates to EventsScreen',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(wrap());
+    await tester.pump();
+
+    await tester.tap(find.text('Explore Events'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(EventsScreen), findsOneWidget);
   });
 }
