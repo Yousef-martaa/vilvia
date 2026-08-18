@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:vilvia/features/auth/data/auth_service.dart';
+import 'package:vilvia/features/auth/data/profile.dart';
 import 'package:vilvia/features/auth/data/profile_api_client.dart';
 import 'package:vilvia/features/auth/presentation/screens/sign_up_screen.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
@@ -37,6 +38,7 @@ class _SignInScreenState extends State<SignInScreen> {
   bool _isSubmitting = false;
   String? _error;
   bool _needsProfileSetup = false;
+  Gender? _gender;
 
   @override
   void initState() {
@@ -100,6 +102,25 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   Future<void> _completeSetup() async {
+    // Same first-name validation as SignUpScreen, applied here before
+    // bootstrap is called -- see that screen's _submit() for why this
+    // must happen before the network call, not just rely on the
+    // backend's 422.
+    final firstName = _finishSetupNameController.text.trim();
+    if (firstName.isEmpty || firstName.length > 200) {
+      setState(() {
+        _error = 'Please enter a first name (1-200 characters).';
+      });
+      return;
+    }
+
+    if (_gender == null) {
+      setState(() {
+        _error = 'Please select a gender.';
+      });
+      return;
+    }
+
     setState(() {
       _isSubmitting = true;
       _error = null;
@@ -107,7 +128,8 @@ class _SignInScreenState extends State<SignInScreen> {
 
     try {
       await _profileApiClient.bootstrap(
-        firstName: _finishSetupNameController.text.trim(),
+        firstName: firstName,
+        gender: _gender!,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -148,8 +170,8 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: 20),
                   if (_needsProfileSetup) ...[
                     Text(
-                      "You're signed in, but we still need your name to "
-                      'finish setting up your account.',
+                      "You're signed in, but we still need your name and "
+                      'gender to finish setting up your account.',
                       style: textTheme.bodyLarge,
                     ),
                     const SizedBox(height: 16),
@@ -157,6 +179,24 @@ class _SignInScreenState extends State<SignInScreen> {
                       controller: _finishSetupNameController,
                       decoration:
                           const InputDecoration(labelText: 'First name'),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Gender', style: textTheme.bodyMedium),
+                    const SizedBox(height: 8),
+                    SegmentedButton<Gender>(
+                      segments: const [
+                        ButtonSegment(
+                            value: Gender.male, label: Text('Male')),
+                        ButtonSegment(
+                            value: Gender.female, label: Text('Female')),
+                      ],
+                      selected: _gender == null ? const {} : {_gender!},
+                      emptySelectionAllowed: true,
+                      onSelectionChanged: (selected) {
+                        setState(() {
+                          _gender = selected.isEmpty ? null : selected.first;
+                        });
+                      },
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 12),

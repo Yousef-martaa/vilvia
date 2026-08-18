@@ -22,11 +22,12 @@ Session _fakeSession({String email = 'parent@example.com'}) => Session(
       user: _fakeUser(email: email),
     );
 
-Profile _fakeProfile({String firstName = 'Rowan'}) => Profile(
+Profile _fakeProfile({String firstName = 'Rowan', Gender? gender}) => Profile(
       id: 'user-1',
       firstName: firstName,
       email: 'parent@example.com',
       role: 'parent',
+      gender: gender,
       createdAt: DateTime(2024),
       updatedAt: DateTime(2024),
     );
@@ -55,6 +56,7 @@ class _FakeProfileApiClient extends ProfileApiClient {
   final Object? getMeError;
   bool bootstrapCalled = false;
   String? bootstrapFirstName;
+  Gender? bootstrapGender;
 
   @override
   Future<Profile> getMe() async {
@@ -63,10 +65,14 @@ class _FakeProfileApiClient extends ProfileApiClient {
   }
 
   @override
-  Future<Profile> bootstrap({required String firstName}) async {
+  Future<Profile> bootstrap({
+    required String firstName,
+    required Gender gender,
+  }) async {
     bootstrapCalled = true;
     bootstrapFirstName = firstName;
-    return _fakeProfile(firstName: firstName);
+    bootstrapGender = gender;
+    return _fakeProfile(firstName: firstName, gender: gender);
   }
 }
 
@@ -128,11 +134,92 @@ void main() {
       find.widgetWithText(TextField, 'First name'),
       'Rowan',
     );
+    await tester.tap(find.text('Female'));
+    await tester.pump();
     await tester.tap(find.text('Complete Setup'));
     await tester.pumpAndSettle();
 
     expect(profileClient.bootstrapCalled, isTrue);
     expect(profileClient.bootstrapFirstName, 'Rowan');
+    expect(profileClient.bootstrapGender, Gender.female);
+  });
+
+  testWidgets(
+      'completing setup with an empty first name shows a validation error and does not bootstrap',
+      (tester) async {
+    final authService = _FakeAuthService(
+      signInResult: AuthResponse(session: _fakeSession()),
+    );
+    final profileClient = _FakeProfileApiClient(
+      getMeError: ProfileNotFoundException(),
+    );
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await fillForm(tester);
+    await tester.tap(find.text('Sign In'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Female'));
+    await tester.pump();
+    await tester.tap(find.text('Complete Setup'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Please enter a first name'), findsOneWidget);
+    expect(profileClient.bootstrapCalled, isFalse);
+  });
+
+  testWidgets(
+      'completing setup with a first name over 200 characters shows a validation error and does not bootstrap',
+      (tester) async {
+    final authService = _FakeAuthService(
+      signInResult: AuthResponse(session: _fakeSession()),
+    );
+    final profileClient = _FakeProfileApiClient(
+      getMeError: ProfileNotFoundException(),
+    );
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await fillForm(tester);
+    await tester.tap(find.text('Sign In'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'First name'),
+      'A' * 201,
+    );
+    await tester.tap(find.text('Female'));
+    await tester.pump();
+    await tester.tap(find.text('Complete Setup'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Please enter a first name'), findsOneWidget);
+    expect(profileClient.bootstrapCalled, isFalse);
+  });
+
+  testWidgets(
+      'completing setup without selecting a gender shows an error and does not bootstrap',
+      (tester) async {
+    final authService = _FakeAuthService(
+      signInResult: AuthResponse(session: _fakeSession()),
+    );
+    final profileClient = _FakeProfileApiClient(
+      getMeError: ProfileNotFoundException(),
+    );
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await fillForm(tester);
+    await tester.tap(find.text('Sign In'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'First name'),
+      'Rowan',
+    );
+    await tester.tap(find.text('Complete Setup'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Please select a gender'), findsOneWidget);
+    expect(profileClient.bootstrapCalled, isFalse);
   });
 
   testWidgets('shows an error message when sign in fails', (tester) async {

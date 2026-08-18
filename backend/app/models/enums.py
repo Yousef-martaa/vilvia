@@ -8,6 +8,14 @@ class UserRole(str, enum.Enum):
     admin = "admin"
 
 
+class Gender(str, enum.Enum):
+    """A user profile attribute, deliberately separate from UserRole.
+    Never use this to gate authorization -- see UserRole for that."""
+
+    male = "male"
+    female = "female"
+
+
 class ChildStage(str, enum.Enum):
     pregnancy = "pregnancy"
     newborn = "newborn"

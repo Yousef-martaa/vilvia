@@ -1,8 +1,28 @@
+/// A user profile attribute, deliberately unrelated to authorization
+/// (`Profile.role`). Enum member names double as the backend's exact JSON
+/// contract ("male"/"female"), so serialization is just `.name` / `.byName`
+/// with no separate mapping to keep in sync.
+enum Gender {
+  male,
+  female;
+
+  String toJson() => name;
+
+  /// Throws [ArgumentError] (via [EnumName.byName]) for anything other
+  /// than a currently-known member name -- an unexpected value from the
+  /// backend must fail loudly, not silently coerce to some default.
+  static Gender fromJson(String value) => Gender.values.byName(value);
+}
+
 class Profile {
   final String id;
   final String firstName;
   final String email;
   final String role;
+  // Nullable: profiles created before this field existed have no value
+  // and are not backfilled. New signups always set it -- see
+  // docs/FEATURES/authentication.md.
+  final Gender? gender;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -11,6 +31,7 @@ class Profile {
     required this.firstName,
     required this.email,
     required this.role,
+    this.gender,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -21,6 +42,9 @@ class Profile {
       firstName: json['first_name'] as String,
       email: json['email'] as String,
       role: json['role'] as String,
+      gender: json['gender'] == null
+          ? null
+          : Gender.fromJson(json['gender'] as String),
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
