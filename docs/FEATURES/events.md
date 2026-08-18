@@ -27,7 +27,7 @@ Both origins are first-class; neither is a fallback for the other. Issue #63 est
 - An "Explore Events" entry point on Home, alongside the existing Explore Resources entry point.
 - A database-level ownership foundation: `Event.created_by`, an optional (nullable) foreign key to `profiles.id` with `ON DELETE SET NULL`, reusing the existing Profile/user architecture rather than a parallel creator model. This is **domain/DB scaffolding only** — `created_by` is not currently exposed via `GET /events`, and there is no way yet to actually create an event with one set (see Out of Scope). It exists so a later Create-Event issue has somewhere to attach ownership without a migration that reshapes the table.
 
-This is a **list/API/UI foundation only**. No event content pipeline (user-created or admin-curated) exists yet — see Seed / Development Data below for what actually populates the list today.
+This is a **list/API/UI foundation only**. No event content pipeline (user-created or admin-curated) exists yet, so the normal database — local, staging, or production — contains **no Event rows at all** until one is built. `GET /events` returning an empty list is the expected, correct state, not a bug. See Seed / Development Data below for the one, explicitly manual way to populate the list for local development/testing.
 
 ## Out of Scope (Not Yet Implemented)
 
@@ -44,7 +44,9 @@ This is a **list/API/UI foundation only**. No event content pipeline (user-creat
 
 ## Seed / Development Data
 
-`backend/scripts/seed_events.py` inserts a small set of clearly-labeled sample events for **local development and testing only**. It is not run automatically as part of the application. Seeded events are **not production content** and must never be presented or treated as real, verified, official, or user-created events.
+`backend/scripts/seed_events.py` inserts a small set of clearly-labeled sample events for **local development and testing only**. It is a manual, opt-in developer tool: it is **never run automatically** by the application, a migration, CI, or any deployment step, and must not be wired into any of those. Run it yourself (`python scripts/seed_events.py`) only when you specifically want sample events in your local database to exercise the Events list/UI end to end.
+
+The normal database — local, staging, or production, whenever nobody has deliberately run this script — should contain **no Event rows**, sample or otherwise. Seeded events are **not production content** and must never be presented or treated as real, verified, official, or user-created events. Do not rely on this script's output being present; if you need to test against event data, run it explicitly first.
 
 Real production content will come from two places once they're built: Vilvia/admin-curated official events, and user-created community events. Approved external event feeds/APIs may supplement official events later, but only once a suitable, legitimate source is identified — no external provider is implemented in Issue #63.
 
