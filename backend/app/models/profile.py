@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
-from app.models.enums import ChildStage, UserRole, str_enum
+from app.models.enums import ChildStage, Gender, UserRole, str_enum
 
 
 class Profile(Base):
@@ -21,6 +21,10 @@ class Profile(Base):
     first_name: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     role: Mapped[UserRole] = mapped_column(str_enum(UserRole), nullable=False)
+    # Nullable for migration compatibility with rows that predate this
+    # column (see docs/FEATURES/authentication.md) -- required for new
+    # signups at the BootstrapRequest/application layer instead, not here.
+    gender: Mapped[Optional[Gender]] = mapped_column(str_enum(Gender), nullable=True)
     child_stage: Mapped[Optional[ChildStage]] = mapped_column(str_enum(ChildStage), nullable=True)
     pregnancy_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

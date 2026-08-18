@@ -43,6 +43,7 @@ Example fields:
 firstName: string
 email: string
 role: enum
+gender: enum | null
 childStage: enum | null
 pregnancyWeek: number | null
 createdAt: timestamp
@@ -52,7 +53,9 @@ updatedAt: timestamp
 Notes:
 
 - Authentication is handled by Supabase Auth; the backend verifies Supabase-issued access tokens directly against the project's public JWT signing keys (no service-role key needed) rather than trusting any client-supplied identity.
-- A profile row is not created automatically just by authenticating. It is provisioned explicitly via `POST /me/bootstrap` (idempotent, id/email from the verified token, first name from the request body, `role` always `parent`) — see `docs/FEATURES/authentication.md`.
+- A profile row is not created automatically just by authenticating. It is provisioned explicitly via `POST /me/bootstrap` (idempotent, id/email from the verified token, first name and gender from the request body, `role` always `parent`) — see `docs/FEATURES/authentication.md`.
+- `role` (`parent`/`admin`, authorization) and `gender` (`male`/`female`, a profile attribute) are deliberately separate columns/enums. `gender` must never be used to gate access, and `role` must never be inferred from it.
+- `gender` is nullable at the schema level for migration compatibility (existing rows predate the column and are not backfilled with a fabricated value), but is a *required* field on `POST /me/bootstrap` for new profiles — see `docs/FEATURES/authentication.md` for the full migration-compatibility rationale.
 - The profiles table stores only the profile and personalization data needed by the app.
 - Profile rows should remain small and focused.
 - Shared data such as posts and resources should not be stored in the profiles table.

@@ -55,11 +55,14 @@ class ProfileApiClient {
     return Profile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  Future<Profile> bootstrap({required String firstName}) async {
+  Future<Profile> bootstrap({
+    required String firstName,
+    required Gender gender,
+  }) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/me/bootstrap'),
       headers: {..._authHeaders(), 'Content-Type': 'application/json'},
-      body: jsonEncode({'first_name': firstName}),
+      body: jsonEncode({'first_name': firstName, 'gender': gender.toJson()}),
     );
 
     if (response.statusCode != 200) {

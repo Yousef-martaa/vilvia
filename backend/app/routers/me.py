@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -7,6 +9,8 @@ from app.api.deps import AuthenticatedUser, get_current_user, get_db
 from app.models.enums import UserRole
 from app.models.profile import Profile
 from app.schemas.profile import BootstrapRequest, ProfileResponse
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -60,18 +64,25 @@ def bootstrap_profile(
             first_name=body.first_name,
             email=current_user.email,
             role=UserRole.parent,
+            gender=body.gender,
         )
         .on_conflict_do_nothing(index_elements=[Profile.id])
     )
     try:
-        db.execute(stmt)
+        result = db.execute(stmt)
         db.commit()
     except IntegrityError:
         db.rollback()
+        log.warning("bootstrap conflict: email already belongs to a different profile")
         raise HTTPException(
             status_code=409,
             detail="This email is already associated with a different account.",
         ) from None
+
+    # rowcount is 1 only when this call actually inserted the row (not a
+    # no-op against an already-existing one) -- log id only, no email/PII.
+    if result.rowcount:
+        log.info("profile bootstrapped id=%s", current_user.id)
 
     profile = db.get(Profile, current_user.id)
     if profile is None:

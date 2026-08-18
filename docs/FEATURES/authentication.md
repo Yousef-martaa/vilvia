@@ -86,3 +86,92 @@ Home, Resources, and Events remain fully usable without signing in.
 
 Still not implemented: password reset, email change, social login, MFA,
 profile editing, and no existing screen is gated behind authentication.
+
+---
+
+## Implementation (Issue: harden authentication and profile foundation)
+
+### Gender is a profile attribute, not an authorization role
+
+`Profile.gender` (`male`/`female`) and `Profile.role` (`parent`/`admin`)
+are separate columns backed by separate enums (`Gender`, `UserRole` in
+`app/models/enums.py`). `gender` must never be used to grant or deny
+access to anything, and `role` must never be derived from it. A public
+signup always gets `role = parent`; there is no field on any request
+schema that can set `role`, so there is no mass-assignment path to
+`admin`.
+
+### Migration compatibility: nullable column, required for new signups
+
+`profiles.gender` is a **nullable** database column (migration
+`7101b67a47b8_add_profile_gender`), so existing rows created before this
+field existed are left as `gender = NULL` rather than being backfilled
+with a fabricated value.
+
+New profiles are different: `BootstrapRequest.gender` is a **required**
+field, validated as a `Gender` enum by Pydantic, so `POST /me/bootstrap`
+rejects a missing or invalid value with `422` before ever reaching the
+database. This split -- nullable at the schema layer, required at the
+application layer for new writes -- means:
+
+- Old accounts can keep working indefinitely with `gender = null` in
+  `GET /me`'s response.
+- Every *newly created* profile always has a real value.
+- No backfill migration or "complete your profile" flow for legacy NULL
+  rows is implemented in this issue -- deliberately deferred until there
+  is a concrete feature that needs it, per the product's
+  collect-only-what's-needed principle.
+
+### Admin authorization boundary
+
+`app/api/deps.py` provides `require_admin`, a dependency (not a
+permissions framework) that resolves the caller's `Profile` from the
+already-verified identity (`get_current_user` + `get_db`) and requires
+`role == UserRole.admin`, returning `403` for a non-admin *or* a missing
+Profile -- it never distinguishes the two to the client. It takes no
+role/id input from the request itself, so a client cannot assert its own
+admin status. No endpoint uses it yet; it exists so the first privileged
+endpoint can `Depends(require_admin)` directly. Admin elevation itself
+remains a manual, trusted operation (e.g. a direct database update by an
+operator) -- there is no self-service or API path to become an admin.
+
+### Security logging
+
+Minimal, deliberately narrow logging was added where it has real
+investigative value, and nowhere else:
+
+- `require_admin` logs a warning (caller id only) when access is denied
+  -- a signal worth watching for privilege-escalation attempts.
+- `POST /me/bootstrap` logs an info line (caller id only) when it
+  actually creates a new profile, and a warning on the email-conflict
+  (`409`) path.
+
+Deliberately *not* logged: passwords, access/refresh tokens, API
+keys/secrets, JWT claims, or email addresses in these log lines. Routine
+JWT verification failures (e.g. an expired session, which is normal,
+frequent, benign traffic) are not logged, to avoid noise that would bury
+genuinely actionable signals. Clients never receive verification
+details either way -- `InvalidTokenError` collapses every failure reason
+into one generic `401`.
+
+### What's controlled where
+
+- **This repository**: identity always comes from a verified JWT never
+  trusted client input; no mass-assignment path to `role`; `gender`
+  validated server-side via Pydantic/enum; no password handling of any
+  kind (Supabase owns that entirely); minimal, secret-free logging as
+  above.
+- **Supabase Dashboard configuration** (not code, not verified from this
+  repo -- confirm directly in the project's dashboard): minimum password
+  length, "Confirm email", leaked-password protection, rate limits, and
+  CAPTCHA/bot protection. See the issue's investigation report for
+  specific recommended values.
+- **Deferred to a future issue, not a blocker here**: CAPTCHA UI wiring
+  (needs a new Flutter dependency), and moving Flutter's session/token
+  storage off the SDK's default `SharedPreferences`-backed storage onto
+  OS-level secure storage (also a new dependency). Neither is required
+  for this issue's authentication/profile foundation to be correct.
+
+No blanket "OWASP compliant" or "secure against the OWASP Top 10" claim
+is made here -- the above is the specific, verifiable set of controls
+this issue establishes, not a general security guarantee.

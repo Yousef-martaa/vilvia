@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:vilvia/features/auth/data/auth_service.dart';
+import 'package:vilvia/features/auth/data/profile.dart';
 import 'package:vilvia/features/auth/data/profile_api_client.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
 
@@ -32,6 +33,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _isSubmitting = false;
   String? _error;
   bool _awaitingEmailConfirmation = false;
+  Gender? _gender;
 
   @override
   void initState() {
@@ -54,6 +56,28 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 
   Future<void> _submit() async {
+    // Validated here, before Supabase's signUp() is ever called: an empty
+    // or too-long first name would otherwise still create the Auth user,
+    // then fail bootstrap afterwards with a 422 -- leaving an
+    // authenticated account with no Profile for no reason. The backend's
+    // Pydantic validation (1-200 chars) remains the authoritative check;
+    // this only avoids creating an account we already know it will
+    // reject.
+    final firstName = _firstNameController.text.trim();
+    if (firstName.isEmpty || firstName.length > 200) {
+      setState(() {
+        _error = 'Please enter a first name (1-200 characters).';
+      });
+      return;
+    }
+
+    if (_gender == null) {
+      setState(() {
+        _error = 'Please select a gender.';
+      });
+      return;
+    }
+
     setState(() {
       _isSubmitting = true;
       _error = null;
@@ -72,7 +96,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
         // while the first name just typed on this screen is still
         // available -- see the class doc for why this matters.
         await _profileApiClient.bootstrap(
-          firstName: _firstNameController.text.trim(),
+          firstName: firstName,
+          gender: _gender!,
         );
         if (!mounted) return;
         Navigator.of(context).pop();
@@ -146,6 +171,24 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           const InputDecoration(labelText: 'Password'),
                       obscureText: true,
                       textInputAction: TextInputAction.done,
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Gender', style: textTheme.bodyMedium),
+                    const SizedBox(height: 8),
+                    SegmentedButton<Gender>(
+                      segments: const [
+                        ButtonSegment(
+                            value: Gender.male, label: Text('Male')),
+                        ButtonSegment(
+                            value: Gender.female, label: Text('Female')),
+                      ],
+                      selected: _gender == null ? const {} : {_gender!},
+                      emptySelectionAllowed: true,
+                      onSelectionChanged: (selected) {
+                        setState(() {
+                          _gender = selected.isEmpty ? null : selected.first;
+                        });
+                      },
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 12),

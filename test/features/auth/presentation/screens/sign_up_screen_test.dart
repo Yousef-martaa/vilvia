@@ -27,12 +27,14 @@ class _FakeAuthService extends AuthService {
 
   final AuthResponse? signUpResult;
   final Object? signUpError;
+  bool signUpCalled = false;
 
   @override
   Future<AuthResponse> signUp({
     required String email,
     required String password,
   }) async {
+    signUpCalled = true;
     if (signUpError != null) throw signUpError!;
     return signUpResult!;
   }
@@ -43,16 +45,22 @@ class _FakeProfileApiClient extends ProfileApiClient {
 
   bool bootstrapCalled = false;
   String? bootstrapFirstName;
+  Gender? bootstrapGender;
 
   @override
-  Future<Profile> bootstrap({required String firstName}) async {
+  Future<Profile> bootstrap({
+    required String firstName,
+    required Gender gender,
+  }) async {
     bootstrapCalled = true;
     bootstrapFirstName = firstName;
+    bootstrapGender = gender;
     return Profile(
       id: 'user-1',
       firstName: firstName,
       email: 'parent@example.com',
       role: 'parent',
+      gender: gender,
       createdAt: DateTime(2024),
       updatedAt: DateTime(2024),
     );
@@ -82,6 +90,8 @@ void main() {
       find.widgetWithText(TextField, 'Password'),
       'password123',
     );
+    await tester.tap(find.text('Male'));
+    await tester.pump();
   }
 
   testWidgets(
@@ -99,6 +109,93 @@ void main() {
 
     expect(profileClient.bootstrapCalled, isTrue);
     expect(profileClient.bootstrapFirstName, 'Rowan');
+    expect(profileClient.bootstrapGender, Gender.male);
+  });
+
+  testWidgets(
+      'submitting with an empty first name shows a validation error and does not sign up',
+      (tester) async {
+    final authService = _FakeAuthService(
+      signUpResult: AuthResponse(session: _fakeSession()),
+    );
+    final profileClient = _FakeProfileApiClient();
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Email'),
+      'rowan@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Password'),
+      'password123',
+    );
+    await tester.tap(find.text('Male'));
+    await tester.pump();
+    await tester.tap(find.text('Sign Up'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Please enter a first name'), findsOneWidget);
+    expect(authService.signUpCalled, isFalse);
+    expect(profileClient.bootstrapCalled, isFalse);
+  });
+
+  testWidgets(
+      'submitting with a first name over 200 characters shows a validation error and does not sign up',
+      (tester) async {
+    final authService = _FakeAuthService(
+      signUpResult: AuthResponse(session: _fakeSession()),
+    );
+    final profileClient = _FakeProfileApiClient();
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await tester.enterText(
+      find.widgetWithText(TextField, 'First name'),
+      'A' * 201,
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Email'),
+      'rowan@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Password'),
+      'password123',
+    );
+    await tester.tap(find.text('Male'));
+    await tester.pump();
+    await tester.tap(find.text('Sign Up'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Please enter a first name'), findsOneWidget);
+    expect(authService.signUpCalled, isFalse);
+    expect(profileClient.bootstrapCalled, isFalse);
+  });
+
+  testWidgets(
+      'submitting without selecting a gender shows an error and does not sign up',
+      (tester) async {
+    final authService = _FakeAuthService(
+      signUpResult: AuthResponse(session: _fakeSession()),
+    );
+    final profileClient = _FakeProfileApiClient();
+
+    await tester.pumpWidget(wrap(authService, profileClient));
+    await tester.enterText(
+      find.widgetWithText(TextField, 'First name'),
+      'Rowan',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Email'),
+      'rowan@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Password'),
+      'password123',
+    );
+    await tester.tap(find.text('Sign Up'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Please select a gender'), findsOneWidget);
+    expect(profileClient.bootstrapCalled, isFalse);
   });
 
   testWidgets(

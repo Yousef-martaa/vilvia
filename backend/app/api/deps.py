@@ -1,12 +1,17 @@
+import logging
 import uuid
 from collections.abc import Generator
 from dataclasses import dataclass
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import InvalidTokenError, verify_access_token
 from app.core.database import SessionLocal
+from app.models.enums import UserRole
+from app.models.profile import Profile
+
+log = logging.getLogger(__name__)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -64,3 +69,27 @@ def get_current_user(
         raise credentials_error from None
 
     return AuthenticatedUser(id=user_id, email=email)
+
+
+def require_admin(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Profile:
+    """Require the caller's Profile to have role == UserRole.admin.
+
+    Resolves the Profile server-side from the verified identity -- never
+    from client-supplied input, so there is no way for a request to claim
+    admin status for itself. A missing Profile is treated the same as a
+    non-admin one (403), not a distinct error: not-yet-provisioned and
+    not-an-admin both mean "not authorized" here.
+
+    Not currently used by any route -- added now, ahead of the first
+    privileged endpoint, so that endpoint can depend on this directly
+    instead of inventing an authorization check under pressure. See
+    docs/FEATURES/authentication.md.
+    """
+    profile = db.get(Profile, current_user.id)
+    if profile is None or profile.role != UserRole.admin:
+        log.warning("admin access denied for user id=%s", current_user.id)
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return profile
