@@ -3,7 +3,7 @@
 These are mock/fake-based unit tests of the orchestration and
 change-detection logic (counting, provider-failure handling, lock-skip
 handling, and the commit-before-fetch ordering) -- the same style used
-elsewhere in this test suite (see test_resources.py, test_seed_resources.py).
+elsewhere in this test suite (see test_resources.py).
 Genuine Postgres-level behavior this module also depends on (SAVEPOINT
 rollback isolation, `INSERT ... ON CONFLICT` atomicity, session-level
 advisory-lock cross-process exclusion) is verified by actually running

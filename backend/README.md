@@ -49,19 +49,6 @@ Server runs at `http://127.0.0.1:8000`.
 alembic upgrade head
 ```
 
-## Seed data
-
-Populate the database with sample development resources (for local testing
-of the resources list end to end):
-
-```bash
-python scripts/seed_resources.py
-```
-
-Safe to run multiple times — already-seeded records are skipped, so it won't
-create duplicates. This is local/dev sample content only, not real or
-verified resource content.
-
 ## External resource sync (MedlinePlus)
 
 Populate the database with real, trusted content from the MedlinePlus Web

@@ -1,10 +1,9 @@
 """Seed the events table with sample development data.
 
 Local/dev seed data only: not verified, real, or production event content,
-and never run automatically -- this script must be invoked manually, the
-same as scripts/seed_resources.py.
+and never run automatically -- this script must be invoked manually.
 
-Unlike seed_resources.py, this script REFRESHES (does not skip)
+Unlike a skip-if-exists seed script, this script REFRESHES (does not skip)
 already-seeded rows on every run. Event dates are defined relative to
 "now" at seed time (e.g. "3 days from now"), so a previously seeded event
 would otherwise silently age past `starts_at` and drop out of the
@@ -29,10 +28,9 @@ from sqlalchemy import select  # noqa: E402
 from app.core.database import SessionLocal  # noqa: E402
 from app.models.event import Event  # noqa: E402
 
-# Fixed namespace for deriving deterministic seed ids. Distinct from
-# seed_resources.py's namespace. Do not change this value, or previously
-# seeded records will no longer be recognized and will be re-inserted as
-# duplicates.
+# Fixed namespace for deriving deterministic seed ids. Do not change this
+# value, or previously seeded records will no longer be recognized and will
+# be re-inserted as duplicates.
 SEED_NAMESPACE = uuid.UUID("5eb6fb00-d0a6-4993-a6bb-0bce1eb07102")
 
 DISCLAIMER = "[Development sample data - not a real scheduled event.] "

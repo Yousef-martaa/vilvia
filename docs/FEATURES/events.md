@@ -44,7 +44,7 @@ This is a **list/API/UI foundation only**. No event content pipeline (user-creat
 
 ## Seed / Development Data
 
-`backend/scripts/seed_events.py` inserts a small set of clearly-labeled sample events for **local development and testing only**. It is not run automatically as part of the application. Seeded events are **not production content** and must never be presented or treated as real, verified, official, or user-created events — the same convention already used by `backend/scripts/seed_resources.py`.
+`backend/scripts/seed_events.py` inserts a small set of clearly-labeled sample events for **local development and testing only**. It is not run automatically as part of the application. Seeded events are **not production content** and must never be presented or treated as real, verified, official, or user-created events.
 
 Real production content will come from two places once they're built: Vilvia/admin-curated official events, and user-created community events. Approved external event feeds/APIs may supplement official events later, but only once a suitable, legitimate source is identified — no external provider is implemented in Issue #63.
 
