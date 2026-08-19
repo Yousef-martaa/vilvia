@@ -5,8 +5,9 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_db
+from app.api.deps import AuthenticatedUser, get_current_user, get_db
 from app.main import app
+from app.models.enums import UserRole
 
 client = TestClient(app)
 
@@ -89,3 +90,263 @@ def test_get_events_query_filters_published_and_upcoming_ordered_soonest_first()
     assert "starts_at >=" in sql
     assert "now()" in sql
     assert "order by events.starts_at asc" in sql
+
+
+# --- POST /events: admin-only draft creation -------------------------------
+
+
+def _override_current_user(user_id=None, email="admin@example.com"):
+    user = AuthenticatedUser(id=user_id or uuid.uuid4(), email=email)
+    app.dependency_overrides[get_current_user] = lambda: user
+    return user
+
+
+def make_mock_profile(**kwargs):
+    profile = MagicMock()
+    profile.id = kwargs.get("id", uuid.uuid4())
+    profile.role = kwargs.get("role", UserRole.parent)
+    return profile
+
+
+def _mock_db_for_create(profile):
+    """A get_db override suitable for require_admin (db.get -> profile)
+    plus a real POST /events write: db.refresh is faked to behave like a
+    post-flush read-back, since the mock never actually inserts a row.
+    """
+    mock_db = MagicMock()
+    mock_db.get.return_value = profile
+
+    def _fake_refresh(event):
+        if event.id is None:
+            event.id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        event.created_at = now
+        event.updated_at = now
+
+    mock_db.refresh.side_effect = _fake_refresh
+    app.dependency_overrides[get_db] = lambda: mock_db
+    return mock_db
+
+
+def valid_event_payload(**overrides):
+    now = datetime.now(timezone.utc)
+    payload = {
+        "title": "Parent & Baby Playgroup",
+        "description": "A relaxed drop-in playgroup.",
+        "location": "Community Centre",
+        "starts_at": (now + timedelta(days=1)).isoformat(),
+        "ends_at": (now + timedelta(days=1, hours=2)).isoformat(),
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_create_event_requires_authentication():
+    app.dependency_overrides.clear()  # no auth override at all
+    response = client.post("/events", json=valid_event_payload())
+    assert response.status_code == 401
+
+
+def test_create_event_rejects_authenticated_parent():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.parent))
+
+    response = client.post("/events", json=valid_event_payload())
+
+    assert response.status_code == 403
+
+
+def test_create_event_rejects_authenticated_user_without_profile():
+    _override_current_user()
+    _mock_db_for_create(None)
+
+    response = client.post("/events", json=valid_event_payload())
+
+    assert response.status_code == 403
+
+
+def test_create_event_allows_admin():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post("/events", json=valid_event_payload())
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["title"] == "Parent & Baby Playgroup"
+    assert data["location"] == "Community Centre"
+
+
+def test_create_event_assigns_created_by_from_authenticated_admin():
+    user = _override_current_user()
+    admin_profile = make_mock_profile(id=user.id, role=UserRole.admin)
+    mock_db = _mock_db_for_create(admin_profile)
+
+    client.post("/events", json=valid_event_payload())
+
+    created_event = mock_db.add.call_args[0][0]
+    assert created_event.created_by == user.id
+
+
+def test_create_event_always_sets_is_published_false():
+    user = _override_current_user()
+    admin_profile = make_mock_profile(id=user.id, role=UserRole.admin)
+    mock_db = _mock_db_for_create(admin_profile)
+
+    client.post("/events", json=valid_event_payload())
+
+    created_event = mock_db.add.call_args[0][0]
+    assert created_event.is_published is False
+
+
+def test_create_event_does_not_expose_created_by_in_response():
+    user = _override_current_user()
+    _mock_db_for_create(make_mock_profile(id=user.id, role=UserRole.admin))
+
+    response = client.post("/events", json=valid_event_payload())
+
+    data = response.json()
+    assert "created_by" not in data
+    assert "is_published" not in data
+
+
+def test_create_event_rejects_missing_required_fields():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post("/events", json={"title": "Only a title"})
+
+    assert response.status_code == 422
+
+
+def test_create_event_rejects_invalid_starts_at():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post(
+        "/events", json=valid_event_payload(starts_at="not-a-datetime")
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("field", ["title", "location", "description"])
+def test_create_event_rejects_blank_required_text_fields(field):
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post("/events", json=valid_event_payload(**{field: ""}))
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("field", ["title", "location", "description"])
+def test_create_event_rejects_whitespace_only_required_text_fields(field):
+    # min_length=1 alone would accept "   " -- EventCreate strips
+    # whitespace before that check runs, so a whitespace-only value is
+    # normalized to "" and rejected the same as an empty string.
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post("/events", json=valid_event_payload(**{field: "   "}))
+
+    assert response.status_code == 422
+
+
+def test_create_event_rejects_ends_at_before_starts_at():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    now = datetime.now(timezone.utc)
+    response = client.post(
+        "/events",
+        json=valid_event_payload(
+            starts_at=now.isoformat(), ends_at=(now - timedelta(hours=1)).isoformat()
+        ),
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_event_rejects_ends_at_equal_to_starts_at():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    now = datetime.now(timezone.utc)
+    response = client.post(
+        "/events",
+        json=valid_event_payload(starts_at=now.isoformat(), ends_at=now.isoformat()),
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_event_rejects_naive_starts_at():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post(
+        "/events", json=valid_event_payload(starts_at="2026-08-20T15:00:00")
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_event_rejects_naive_ends_at():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post(
+        "/events",
+        json=valid_event_payload(
+            starts_at="2026-08-20T15:00:00+02:00", ends_at="2026-08-20T17:00:00"
+        ),
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_event_accepts_timezone_aware_datetimes():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post(
+        "/events",
+        json=valid_event_payload(
+            starts_at="2026-08-20T15:00:00+02:00",
+            ends_at="2026-08-20T17:00:00+02:00",
+        ),
+    )
+
+    assert response.status_code == 201
+
+
+def test_create_event_rejects_client_supplied_created_by():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post(
+        "/events", json=valid_event_payload(created_by=str(uuid.uuid4()))
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_event_rejects_client_supplied_is_published():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post("/events", json=valid_event_payload(is_published=True))
+
+    assert response.status_code == 422
+
+
+def test_create_event_rejects_arbitrary_extra_field():
+    _override_current_user()
+    _mock_db_for_create(make_mock_profile(role=UserRole.admin))
+
+    response = client.post(
+        "/events", json=valid_event_payload(unexpected_field="surprise")
+    )
+
+    assert response.status_code == 422

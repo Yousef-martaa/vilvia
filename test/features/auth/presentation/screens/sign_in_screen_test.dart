@@ -26,7 +26,7 @@ Profile _fakeProfile({String firstName = 'Rowan', Gender? gender}) => Profile(
       id: 'user-1',
       firstName: firstName,
       email: 'parent@example.com',
-      role: 'parent',
+      role: UserRole.parent,
       gender: gender,
       createdAt: DateTime(2024),
       updatedAt: DateTime(2024),

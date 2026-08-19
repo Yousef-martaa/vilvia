@@ -90,6 +90,157 @@ void main() {
     });
   });
 
+  group('EventsApiClient.createEvent', () {
+    test('sends POST /events with the bearer token and parses the 201 '
+        'response', () async {
+      http.Request? captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response(jsonEncode(eventJson(title: 'Created Event')), 201);
+      });
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      final event = await api.createEvent(
+        title: 'Created Event',
+        description: 'A short description',
+        location: 'Community Centre',
+        startsAt: DateTime.utc(2026, 8, 22, 10),
+        endsAt: DateTime.utc(2026, 8, 22, 12),
+      );
+
+      expect(event.title, 'Created Event');
+      expect(captured!.method, 'POST');
+      expect(captured!.url.path, '/events');
+      expect(captured!.headers['Authorization'], 'Bearer test-token');
+    });
+
+    test('request body contains only the allowed fields', () async {
+      http.Request? captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response(jsonEncode(eventJson()), 201);
+      });
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      await api.createEvent(
+        title: 'Created Event',
+        description: 'A short description',
+        location: 'Community Centre',
+        startsAt: DateTime.utc(2026, 8, 22, 10),
+        endsAt: DateTime.utc(2026, 8, 22, 12),
+      );
+
+      final body = jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(
+        body.keys.toSet(),
+        {'title', 'description', 'location', 'starts_at', 'ends_at'},
+      );
+      expect(body.containsKey('id'), isFalse);
+      expect(body.containsKey('created_by'), isFalse);
+      expect(body.containsKey('is_published'), isFalse);
+      expect(body.containsKey('role'), isFalse);
+    });
+
+    test('omits ends_at entirely when not provided', () async {
+      http.Request? captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response(jsonEncode(eventJson()), 201);
+      });
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      await api.createEvent(
+        title: 'Created Event',
+        description: 'A short description',
+        location: 'Community Centre',
+        startsAt: DateTime.utc(2026, 8, 22, 10),
+      );
+
+      final body = jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body.containsKey('ends_at'), isFalse);
+    });
+
+    test('serializes starts_at/ends_at as UTC ISO-8601 with a trailing Z, '
+        'even from a local (non-UTC) DateTime', () async {
+      http.Request? captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response(jsonEncode(eventJson()), 201);
+      });
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      await api.createEvent(
+        title: 'Created Event',
+        description: 'A short description',
+        location: 'Community Centre',
+        startsAt: DateTime(2026, 8, 22, 10),
+        endsAt: DateTime(2026, 8, 22, 12),
+      );
+
+      final body = jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body['starts_at'], endsWith('Z'));
+      expect(body['ends_at'], endsWith('Z'));
+    });
+
+    test('throws on a non-201 response', () async {
+      final client = MockClient(
+        (_) async => http.Response('Forbidden', 403),
+      );
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      expect(
+        api.createEvent(
+          title: 'Created Event',
+          description: 'A short description',
+          location: 'Community Centre',
+          startsAt: DateTime.utc(2026, 8, 22, 10),
+        ),
+        throwsException,
+      );
+    });
+
+    test('throws StateError when no access token is available', () async {
+      final client = MockClient(
+        (_) async => http.Response(jsonEncode(eventJson()), 201),
+      );
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => null,
+      );
+
+      expect(
+        api.createEvent(
+          title: 'Created Event',
+          description: 'A short description',
+          location: 'Community Centre',
+          startsAt: DateTime.utc(2026, 8, 22, 10),
+        ),
+        throwsStateError,
+      );
+    });
+  });
+
   group('EventsApiClient.close', () {
     test('does not close an injected client', () {
       final tracking = _TrackingClient();

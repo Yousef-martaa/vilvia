@@ -133,6 +133,7 @@ Notes:
 - The normal events list only returns published events whose `startsAt` is still in the future (`startsAt >= now`), ordered soonest first. Past events are not returned by this endpoint.
 - Vilvia-authored/editorial events should be reviewed before publication, the same as resources — see `docs/FEATURES/events.md`.
 - `createdBy` is optional ownership information only — a real foreign key to `profiles.id` with `ON DELETE SET NULL`, so a community event survives if its creator's profile is later deleted. `createdBy` being `null` means only "no creator is recorded"; it is **not** an official-vs-user-created discriminator (a community event can legitimately end up with `createdBy: null` this same way). An explicit origin/type distinction, if one becomes necessary, belongs in its own field, added when a real product requirement needs it. `createdBy` is not currently exposed via `GET /events`.
+- Creating an Event and publishing it are separate operations: `POST /events` (admin-only, via `require_admin`) sets `createdBy` to the authenticated admin's own profile id server-side and always sets `isPublished` to `false` — a client cannot set either field itself, and there is no publish/review endpoint yet (flipping `isPublished` today is a manual database operation) — see `docs/FEATURES/events.md`.
 
 ---
 
