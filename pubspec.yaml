@@ -39,10 +39,22 @@ dependencies:
   url_launcher: ^6.3.1
   intl: ^0.19.0
   supabase_flutter: ^2.8.0
+  flutter_secure_storage: ^11.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  # Test-only: used to mock the legacy SharedPreferences-backed session
+  # storage in secure_local_storage_test.dart (Issue #85 migration path).
+  # Production code never imports this directly -- it only uses
+  # supabase_flutter's own re-exported SharedPreferencesLocalStorage.
+  shared_preferences: ^2.5.5
+
+  # Test-only: used to fake the flutter_secure_storage platform channel
+  # in secure_local_storage_test.dart, to deterministically simulate
+  # decryption/Keystore failures without a real device.
+  flutter_secure_storage_platform_interface: ^2.0.3
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

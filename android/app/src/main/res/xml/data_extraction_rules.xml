@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+) backup/transfer rules (Issue #85).
+
+  Excludes only the two SharedPreferences files flutter_secure_storage
+  11.0.0 uses on Android to hold encrypted session data and wrapped key
+  material -- "FlutterSecureStorage" (default sharedPreferencesName) and
+  the hardcoded "FlutterSecureKeyStorage" -- confirmed from the installed
+  package's own source
+  (FlutterSecureStorageConfig.java / FlutterSecureStorage.java). Nothing
+  else in the app is excluded; there is no other local persistence to
+  protect today.
+
+  This exists because the RSA key used to unwrap stored secrets is
+  Android-Keystore-bound and never transfers with a cloud backup or
+  device-to-device transfer -- restoring these files onto a different
+  device/Keystore would make them permanently undecryptable and can throw
+  InvalidKeyException. Excluding them (rather than disabling backup
+  app-wide) keeps Auto Backup available for anything else the app may
+  persist locally in the future.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pre-Android-12 (API 23-30) Auto Backup rules (Issue #85). Devices on
+  these API levels honor this file instead of data_extraction_rules.xml.
+  Same exclusions and reasoning -- see that file's comment.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+</full-backup-content>
