@@ -58,3 +58,17 @@ class EventCreate(BaseModel):
         if self.ends_at is not None and self.ends_at <= self.starts_at:
             raise ValueError("ends_at must be after starts_at")
         return self
+
+
+class EventPublishRequest(BaseModel):
+    """POST /events/{event_id}/publish takes no business input from the
+    client -- there is nothing to assign here, only which Event to
+    publish, and that comes from the path, not this body. This model
+    exists purely so a client-supplied body (e.g. attempting to sneak in
+    `is_published` or `created_by`) is rejected with 422 rather than
+    silently ignored; a request with no body at all, or an empty JSON
+    object, is accepted the same way, since neither carries any field
+    for `extra="forbid"` to reject.
+    """
+
+    model_config = ConfigDict(extra="forbid")

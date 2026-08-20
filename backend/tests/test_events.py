@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import AuthenticatedUser, get_current_user, get_db
 from app.main import app
 from app.models.enums import UserRole
+from app.models.profile import Profile
 
 client = TestClient(app)
 
@@ -350,3 +351,309 @@ def test_create_event_rejects_arbitrary_extra_field():
     )
 
     assert response.status_code == 422
+
+
+# --- GET /events/drafts: admin-only draft listing ---------------------------
+
+
+def _mock_db_for_admin(profile):
+    """A get_db override suitable for require_admin (db.get -> profile)."""
+    mock_db = MagicMock()
+    mock_db.get.return_value = profile
+    app.dependency_overrides[get_db] = lambda: mock_db
+    return mock_db
+
+
+def _mock_db_for_admin_listing(profile, events):
+    """Combines the require_admin db.get(...) lookup with a query result
+    for db.execute(...).scalars().all(), the same shape GET /events uses.
+    """
+    mock_db = _mock_db_for_admin(profile)
+    mock_db.execute.return_value.scalars.return_value.all.return_value = events
+    return mock_db
+
+
+def test_get_draft_events_requires_authentication():
+    app.dependency_overrides.clear()
+    response = client.get("/events/drafts")
+    assert response.status_code == 401
+
+
+def test_get_draft_events_rejects_authenticated_parent():
+    _override_current_user()
+    _mock_db_for_admin_listing(make_mock_profile(role=UserRole.parent), [])
+
+    response = client.get("/events/drafts")
+
+    assert response.status_code == 403
+
+
+def test_get_draft_events_rejects_authenticated_user_without_profile():
+    _override_current_user()
+    _mock_db_for_admin_listing(None, [])
+
+    response = client.get("/events/drafts")
+
+    assert response.status_code == 403
+
+
+def test_get_draft_events_returns_drafts_for_admin():
+    _override_current_user()
+    draft = make_mock_event(is_published=False, title="Draft Event")
+    _mock_db_for_admin_listing(make_mock_profile(role=UserRole.admin), [draft])
+
+    response = client.get("/events/drafts")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["title"] == "Draft Event"
+
+
+def test_get_draft_events_empty_returns_empty_list():
+    _override_current_user()
+    _mock_db_for_admin_listing(make_mock_profile(role=UserRole.admin), [])
+
+    response = client.get("/events/drafts")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_get_draft_events_does_not_expose_created_by():
+    _override_current_user()
+    draft = make_mock_event(is_published=False, created_by=uuid.uuid4())
+    _mock_db_for_admin_listing(make_mock_profile(role=UserRole.admin), [draft])
+
+    response = client.get("/events/drafts")
+
+    data = response.json()
+    assert "created_by" not in data[0]
+    assert "is_published" not in data[0]
+
+
+def test_get_draft_events_query_filters_unpublished_ordered_newest_first():
+    _override_current_user()
+    mock_db = _mock_db_for_admin_listing(make_mock_profile(role=UserRole.admin), [])
+
+    client.get("/events/drafts")
+
+    stmt = mock_db.execute.call_args[0][0]
+    sql = str(stmt).lower()
+    assert "is_published is false" in sql
+    assert "order by events.created_at desc" in sql
+
+
+def test_get_draft_events_query_has_no_starts_at_time_filter():
+    # Unlike GET /events, drafts are not filtered by starts_at -- a
+    # past-dated draft must still be listed here for review, even though
+    # it can no longer be published (see publish_event tests below).
+    _override_current_user()
+    mock_db = _mock_db_for_admin_listing(make_mock_profile(role=UserRole.admin), [])
+
+    client.get("/events/drafts")
+
+    stmt = mock_db.execute.call_args[0][0]
+    sql = str(stmt).lower()
+    # `starts_at` itself is always present as a selected column; what
+    # matters is that it's never used as a WHERE-clause time filter here,
+    # unlike GET /events's `starts_at >= now()`.
+    assert "starts_at >=" not in sql
+    assert "now()" not in sql
+
+
+# --- POST /events/{event_id}/publish: admin-only publishing -----------------
+
+
+def _mock_db_for_publish(profile, event):
+    """A get_db override suitable for require_admin (db.get -> profile)
+    plus a single-event lookup for publish_event (db.get -> event).
+    db.get is called twice with different model types (Profile, then
+    Event), so it's routed by the model argument rather than call order.
+    """
+    mock_db = MagicMock()
+
+    def _fake_get(model, _id):
+        if model is Profile:
+            return profile
+        return event
+
+    mock_db.get.side_effect = _fake_get
+    app.dependency_overrides[get_db] = lambda: mock_db
+    return mock_db
+
+
+def test_publish_event_requires_authentication():
+    app.dependency_overrides.clear()
+    response = client.post(f"/events/{uuid.uuid4()}/publish")
+    assert response.status_code == 401
+
+
+def test_publish_event_rejects_authenticated_parent():
+    _override_current_user()
+    _mock_db_for_publish(make_mock_profile(role=UserRole.parent), make_mock_event())
+
+    response = client.post(f"/events/{uuid.uuid4()}/publish")
+
+    assert response.status_code == 403
+
+
+def test_publish_event_rejects_authenticated_user_without_profile():
+    _override_current_user()
+    _mock_db_for_publish(None, make_mock_event())
+
+    response = client.post(f"/events/{uuid.uuid4()}/publish")
+
+    assert response.status_code == 403
+
+
+def test_publish_event_returns_404_for_nonexistent_event():
+    _override_current_user()
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), None)
+
+    response = client.post(f"/events/{uuid.uuid4()}/publish")
+
+    assert response.status_code == 404
+
+
+def test_publish_event_sets_is_published_true_for_upcoming_draft():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    draft = make_mock_event(is_published=False, starts_at=now + timedelta(days=1))
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(f"/events/{draft.id}/publish")
+
+    assert response.status_code == 200
+    assert draft.is_published is True
+
+
+def test_publish_event_is_idempotent_for_already_published_upcoming_event():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    event = make_mock_event(is_published=True, starts_at=now + timedelta(days=1))
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), event)
+
+    response = client.post(f"/events/{event.id}/publish")
+
+    assert response.status_code == 200
+    assert event.is_published is True
+
+
+def test_publish_event_rejects_past_starts_at_with_409():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    draft = make_mock_event(is_published=False, starts_at=now - timedelta(hours=1))
+    mock_db = _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(f"/events/{draft.id}/publish")
+
+    assert response.status_code == 409
+    # Left untouched: rejected before any write.
+    assert draft.is_published is False
+    mock_db.commit.assert_not_called()
+
+
+def test_publish_event_rejects_past_starts_at_even_if_already_published():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    event = make_mock_event(is_published=True, starts_at=now - timedelta(hours=1))
+    mock_db = _mock_db_for_publish(make_mock_profile(role=UserRole.admin), event)
+
+    response = client.post(f"/events/{event.id}/publish")
+
+    assert response.status_code == 409
+    mock_db.commit.assert_not_called()
+
+
+def test_publish_event_uses_timezone_aware_utc_safe_comparison():
+    # starts_at is genuinely in the past (in UTC terms), but represented
+    # with a non-UTC offset -- a naive/incorrect comparison (e.g. against
+    # a naive `datetime.now()`, or comparing raw wall-clock values without
+    # normalizing offsets) could get this wrong. It must still be
+    # rejected as past.
+    _override_current_user()
+    now_utc = datetime.now(timezone.utc)
+    past_non_utc = (now_utc - timedelta(hours=1)).astimezone(
+        timezone(timedelta(hours=5))
+    )
+    draft = make_mock_event(is_published=False, starts_at=past_non_utc)
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(f"/events/{draft.id}/publish")
+
+    assert response.status_code == 409
+
+
+def test_publish_event_rejects_client_supplied_is_published():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    draft = make_mock_event(is_published=False, starts_at=now + timedelta(days=1))
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(
+        f"/events/{draft.id}/publish", json={"is_published": True}
+    )
+
+    assert response.status_code == 422
+
+
+def test_publish_event_rejects_client_supplied_created_by():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    draft = make_mock_event(is_published=False, starts_at=now + timedelta(days=1))
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(
+        f"/events/{draft.id}/publish", json={"created_by": str(uuid.uuid4())}
+    )
+
+    assert response.status_code == 422
+
+
+def test_publish_event_rejects_arbitrary_extra_field():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    draft = make_mock_event(is_published=False, starts_at=now + timedelta(days=1))
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(
+        f"/events/{draft.id}/publish", json={"unexpected_field": "surprise"}
+    )
+
+    assert response.status_code == 422
+
+
+def test_publish_event_accepts_no_request_body():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    draft = make_mock_event(is_published=False, starts_at=now + timedelta(days=1))
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(f"/events/{draft.id}/publish")
+
+    assert response.status_code == 200
+
+
+def test_publish_event_accepts_empty_json_object_body():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    draft = make_mock_event(is_published=False, starts_at=now + timedelta(days=1))
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(f"/events/{draft.id}/publish", json={})
+
+    assert response.status_code == 200
+
+
+def test_publish_event_response_does_not_expose_created_by_or_is_published():
+    _override_current_user()
+    now = datetime.now(timezone.utc)
+    draft = make_mock_event(is_published=False, starts_at=now + timedelta(days=1))
+    _mock_db_for_publish(make_mock_profile(role=UserRole.admin), draft)
+
+    response = client.post(f"/events/{draft.id}/publish")
+
+    data = response.json()
+    assert "created_by" not in data
+    assert "is_published" not in data

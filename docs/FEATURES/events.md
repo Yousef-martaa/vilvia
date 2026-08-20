@@ -9,11 +9,17 @@ Unlike Resources, Events is a community/product feature, not primarily trusted e
 1. **User-created community events** — registered Vilvia users creating and hosting their own events.
 2. **Vilvia/admin-curated official events** — real events happening in Sweden, curated by the Vilvia team.
 
-Both origins are first-class; neither is a fallback for the other. Issue #63 established the Events list/API/UI foundation, Issue #65 added an optional ownership column at the domain/DB layer, and Issue #75 added admin-authored event *creation*. Event attendance and the user-created-event content pipeline are still not implemented end to end.
+Both origins are first-class; neither is a fallback for the other. Issue #63 established the Events list/API/UI foundation, Issue #65 added an optional ownership column at the domain/DB layer, Issue #75 added admin-authored event *creation*, and Issue #77 added the explicit review/publish step. Event attendance and the user-created-event content pipeline are still not implemented end to end.
 
 ### Creating an Event and publishing it are separate operations
 
-`POST /events` (admin-only) creates a **draft** Event: `is_published` is always set to `False` server-side and is not accepted from the request body. A created Event does not appear in `GET /events` (which only returns `is_published = True` rows) until something explicitly publishes it. There is currently **no** publish/review endpoint — flipping `is_published` to `True` today requires a direct, manual database operation by an operator, the same trusted-manual-operation pattern already used for granting `UserRole.admin` itself (see docs/FEATURES/authentication.md). An explicit review/publish capability is expected in a later issue; this is intentional, not an oversight, and mirrors this document's existing guidance that Vilvia-authored/editorial events should be reviewed before publication.
+`POST /events` (admin-only) creates a **draft** Event: `is_published` is always set to `False` server-side and is not accepted from the request body. A created Event does not appear in `GET /events` (which only returns `is_published = True` rows) until an admin explicitly publishes it via `POST /events/{event_id}/publish` (admin-only, no request body). Publishing is:
+
+- **Idempotent** for an already-published, still-upcoming Event — calling it again succeeds (`200`) without further effect, rather than erroring.
+- **Rejected with `409`** for an Event whose `starts_at` has already passed (checked with a timezone-aware comparison against the current UTC time), and the Event is left untouched. `GET /events` would never show a past Event anyway (it also filters `starts_at >= now()`), so a "successful" publish that could never become visible would just be a confusing dead end for the admin reviewing drafts.
+- **`404`** for a nonexistent Event id.
+
+`GET /events/drafts` (admin-only) lists every unpublished Event, newest-created first, so an admin has somewhere to review drafts before publishing — deliberately unfiltered by `starts_at` (unlike `GET /events`), so a past-dated draft is still visible there even though it can no longer be published.
 
 ## MVP Scope
 
@@ -31,15 +37,15 @@ Both origins are first-class; neither is a fallback for the other. Issue #63 est
 - An "Explore Events" entry point on Home, alongside the existing Explore Resources entry point.
 - A database-level ownership foundation: `Event.created_by`, an optional (nullable) foreign key to `profiles.id` with `ON DELETE SET NULL`, reusing the existing Profile/user architecture rather than a parallel creator model. `created_by` is still not exposed via `GET /events`'s response.
 - A `POST /events` endpoint, gated by the existing `require_admin` dependency (`app/api/deps.py`; 401 unauthenticated, 403 non-admin/no-profile). Accepts only `title`, `description`, `location`, `starts_at`, and an optional `ends_at` (rejects `ends_at <= starts_at` with `422`); the request schema uses `extra="forbid"`, so `id`, `created_by`, `is_published`, `role`, or any other field is rejected with `422` rather than silently dropped. `created_by` is always the calling admin's own Profile id, resolved server-side from the verified identity — never client input. `is_published` is always set to `False` server-side (see "Creating an Event and publishing it are separate operations" above). Returns `201` with the same `EventResponse` shape as `GET /events` (`created_by` and `is_published` are not exposed).
-- An admin-only "New Event" entry point on the Events screen (`lib/features/events/presentation/screens/events_screen.dart`), shown only when the caller's own `Profile` (freshly read from `GET /me` each time, never cached) has `role == UserRole.admin`; hidden for signed-out users, non-admins, and if the Profile fetch fails, and re-evaluated live on every auth-state change. It opens `CreateEventScreen`, a form (title, description, location, start, optional end) that calls `POST /events` with the current access token and, on success, explicitly tells the admin the Event was created as a draft and is not yet publicly visible. This is a UI convenience only — `POST /events` remains independently protected by `require_admin` server-side.
+- A `GET /events/drafts` endpoint and a `POST /events/{event_id}/publish` endpoint (both admin-only, `require_admin`) — see "Creating an Event and publishing it are separate operations" above for their exact behavior.
+- Admin-only "New Event" and "Drafts" entry points on the Events screen (`lib/features/events/presentation/screens/events_screen.dart`), shown only when the caller's own `Profile` (freshly read from `GET /me` each time, never cached) has `role == UserRole.admin`; hidden for signed-out users, non-admins, and if the Profile fetch fails, and re-evaluated live on every auth-state change. "New Event" opens `CreateEventScreen` (title, description, location, start, optional end), which calls `POST /events` and, on success, explicitly tells the admin the Event was created as a draft and is not yet publicly visible. "Drafts" opens `DraftEventsScreen`, which lists unpublished Events (`GET /events/drafts`) each with a "Publish" button (`POST /events/{event_id}/publish`); a successful publish removes the Event from the draft list and shows a confirmation, and returning to the Events screen refreshes the public list so a newly-published Event appears without a manual pull-to-refresh. Both entry points are a UI convenience only — the underlying endpoints remain independently protected by `require_admin` server-side.
 
-The user-created-event content pipeline still does not exist. Admin-authored events can now be created via `POST /events`, but every created Event starts as an unpublished draft (see above), so the normal database — local, staging, or production — has **no *published* Event rows** until something is both created *and* manually published. `GET /events` returning an empty list is the expected, correct state until that happens, not a bug. See Seed / Development Data below for the one, explicitly manual way to populate the list for local development/testing.
+The user-created-event content pipeline still does not exist. Admin-authored events can now be created and published via `POST /events` and `POST /events/{event_id}/publish`, but a created Event starts as an unpublished draft (see above), so the normal database — local, staging, or production — has **no *published* Event rows** until something is both created *and* explicitly published. `GET /events` returning an empty list is the expected, correct state until that happens, not a bug. See Seed / Development Data below for the one, explicitly manual way to populate the list for local development/testing.
 
 ## Out of Scope (Not Yet Implemented)
 
 - Event Details screen
-- Creating events as a registered user (community/user-created events) — from Flutter or otherwise. Only admin-authored draft creation exists (see above).
-- Publishing/reviewing a created Event (flipping `is_published` to `True`) via any API — currently a manual, direct database operation only.
+- Creating events as a registered user (community/user-created events) — from Flutter or otherwise. Only admin-authored draft creation/publishing exists (see above).
 - Editing or deleting events
 - Attendance / "Going", attendee counts or attendee lists
 - Moderation of events
@@ -73,10 +79,9 @@ None of this is implemented now. These are documented here so the current `Event
 Future versions may include:
 
 - Event creation by registered users (community/user-created events) — the `created_by` ownership column and its creation/auth wiring already exist for admin-authored events as of Issue #75; extending creation to ordinary users, and exposing ownership via the API, do not
-- An explicit review/publish capability for admin-authored draft Events (see "Creating an Event and publishing it are separate operations" above) — currently a manual database operation only
 - Attendance / "Going", with attendee counts
 - Visible attendee lists, subject to future privacy/product decisions
-- Richer Vilvia/admin curation workflows for official events (this issue only covers minimal draft creation)
+- Richer Vilvia/admin curation workflows for official events (Issues #75/#77 only cover minimal draft creation and publishing)
 - Approved external event feeds/APIs, once a suitable source is identified
 - Event Details screen
 - Maps and location details

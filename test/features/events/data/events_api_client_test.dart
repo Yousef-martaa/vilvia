@@ -241,6 +241,160 @@ void main() {
     });
   });
 
+  group('EventsApiClient.getDraftEvents', () {
+    test('sends GET /events/drafts with the bearer token and parses the '
+        'response', () async {
+      http.Request? captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response(jsonEncode([eventJson(title: 'Draft Event')]), 200);
+      });
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      final drafts = await api.getDraftEvents();
+
+      expect(drafts.length, 1);
+      expect(drafts[0].title, 'Draft Event');
+      expect(captured!.method, 'GET');
+      expect(captured!.url.path, '/events/drafts');
+      expect(captured!.headers['Authorization'], 'Bearer test-token');
+    });
+
+    test('returns empty list for empty response', () async {
+      final client = MockClient((_) async => http.Response('[]', 200));
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      final drafts = await api.getDraftEvents();
+
+      expect(drafts, isEmpty);
+    });
+
+    test('throws on non-200 response', () async {
+      final client = MockClient((_) async => http.Response('Forbidden', 403));
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      expect(api.getDraftEvents(), throwsException);
+    });
+
+    test('throws StateError when no access token is available', () async {
+      final client = MockClient((_) async => http.Response('[]', 200));
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => null,
+      );
+
+      expect(api.getDraftEvents(), throwsStateError);
+    });
+  });
+
+  group('EventsApiClient.publishEvent', () {
+    test('sends POST /events/{id}/publish with the bearer token and parses '
+        'the response', () async {
+      http.Request? captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response(jsonEncode(eventJson(title: 'Published Event')), 200);
+      });
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      final event = await api.publishEvent('123e4567-e89b-12d3-a456-426614174000');
+
+      expect(event.title, 'Published Event');
+      expect(captured!.method, 'POST');
+      expect(
+        captured!.url.path,
+        '/events/123e4567-e89b-12d3-a456-426614174000/publish',
+      );
+      expect(captured!.headers['Authorization'], 'Bearer test-token');
+    });
+
+    test('sends no request body', () async {
+      http.Request? captured;
+      final client = MockClient((request) async {
+        captured = request;
+        return http.Response(jsonEncode(eventJson()), 200);
+      });
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      await api.publishEvent('1');
+
+      expect(captured!.body, isEmpty);
+    });
+
+    test('throws a descriptive error on a 409 (past starts_at) response',
+        () async {
+      final client = MockClient((_) async => http.Response('Conflict', 409));
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      expect(
+        api.publishEvent('1'),
+        throwsA(
+          predicate((e) => e.toString().contains('already passed')),
+        ),
+      );
+    });
+
+    test('throws on a 404 response', () async {
+      final client = MockClient((_) async => http.Response('Not Found', 404));
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      expect(api.publishEvent('1'), throwsException);
+    });
+
+    test('throws on a 403 response', () async {
+      final client = MockClient((_) async => http.Response('Forbidden', 403));
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'test-token',
+      );
+
+      expect(api.publishEvent('1'), throwsException);
+    });
+
+    test('throws StateError when no access token is available', () async {
+      final client = MockClient(
+        (_) async => http.Response(jsonEncode(eventJson()), 200),
+      );
+      final api = EventsApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => null,
+      );
+
+      expect(api.publishEvent('1'), throwsStateError);
+    });
+  });
+
   group('EventsApiClient.close', () {
     test('does not close an injected client', () {
       final tracking = _TrackingClient();

@@ -8,6 +8,7 @@ import 'package:vilvia/features/auth/data/profile_api_client.dart';
 import 'package:vilvia/features/events/data/event.dart';
 import 'package:vilvia/features/events/data/events_api_client.dart';
 import 'package:vilvia/features/events/presentation/screens/create_event_screen.dart';
+import 'package:vilvia/features/events/presentation/screens/draft_events_screen.dart';
 import 'package:vilvia/features/events/presentation/widgets/event_card.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
 
@@ -15,13 +16,14 @@ import 'package:vilvia/theme/vilvia_colors.dart';
 /// Vilvia's own API, soonest first. No filtering/search, no details
 /// screen, no booking -- browsing only.
 ///
-/// Issue #75 added one admin-only addition: a "New Event" entry point,
-/// shown only when the caller's own `Profile` (freshly read from `GET
-/// /me`, never cached/trusted from anywhere else) has `role ==
-/// UserRole.admin`. This is a UI convenience only -- `POST /events`
-/// remains independently protected by `require_admin` server-side, so
-/// hiding/showing this button changes nothing about who can actually
-/// create an Event.
+/// Issue #75 added an admin-only "New Event" entry point, and Issue #77
+/// added an admin-only "Drafts" entry point next to it -- both shown
+/// only when the caller's own `Profile` (freshly read from `GET /me`,
+/// never cached/trusted from anywhere else) has `role ==
+/// UserRole.admin`. This is a UI convenience only -- `POST /events` and
+/// `POST /events/{id}/publish` remain independently protected by
+/// `require_admin` server-side, so hiding/showing these buttons changes
+/// nothing about who can actually create or publish an Event.
 class EventsScreen extends StatefulWidget {
   final EventsApiClient? apiClient;
   final AuthService? authService;
@@ -145,16 +147,42 @@ class _EventsScreenState extends State<EventsScreen> {
     );
   }
 
+  Future<void> _openDraftEvents() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DraftEventsScreen(apiClient: _apiClient),
+      ),
+    );
+    // Refresh unconditionally on return -- simpler than plumbing a
+    // "did a publish actually happen" result back through the pushed
+    // route, and a redundant refetch when nothing changed is harmless.
+    if (!mounted) return;
+    _loadEvents();
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
       floatingActionButton: _isAdmin
-          ? FloatingActionButton.extended(
-              onPressed: _openCreateEvent,
-              icon: const Icon(Icons.add),
-              label: const Text('New Event'),
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton.extended(
+                  heroTag: 'drafts',
+                  onPressed: _openDraftEvents,
+                  icon: const Icon(Icons.drafts_outlined),
+                  label: const Text('Drafts'),
+                ),
+                const SizedBox(height: 12),
+                FloatingActionButton.extended(
+                  heroTag: 'newEvent',
+                  onPressed: _openCreateEvent,
+                  icon: const Icon(Icons.add),
+                  label: const Text('New Event'),
+                ),
+              ],
             )
           : null,
       body: SafeArea(

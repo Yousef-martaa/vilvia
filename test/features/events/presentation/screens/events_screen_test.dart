@@ -10,6 +10,7 @@ import 'package:vilvia/features/auth/data/profile_api_client.dart';
 import 'package:vilvia/features/events/data/event.dart';
 import 'package:vilvia/features/events/data/events_api_client.dart';
 import 'package:vilvia/features/events/presentation/screens/create_event_screen.dart';
+import 'package:vilvia/features/events/presentation/screens/draft_events_screen.dart';
 import 'package:vilvia/features/events/presentation/screens/events_screen.dart';
 
 // --- Stub helpers ---
@@ -34,12 +35,19 @@ Event _fakeEvent({
 }
 
 class _StubApiClient extends EventsApiClient {
-  final Future<List<Event>> Function() _fn;
-
   _StubApiClient(this._fn) : super(baseUrl: 'http://test');
+
+  final Future<List<Event>> Function() _fn;
 
   @override
   Future<List<Event>> getEvents() => _fn();
+
+  // DraftEventsScreen (opened via the admin-only "Drafts" button) calls
+  // this on load -- an empty list is sufficient for every test in this
+  // file, which only exercises navigation and the public-list refresh,
+  // never draft content itself.
+  @override
+  Future<List<Event>> getDraftEvents() async => [];
 }
 
 class _SpyApiClient extends EventsApiClient {
@@ -317,6 +325,105 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(CreateEventScreen), findsOneWidget);
+    authService.disposeFake();
+  });
+
+  // --- Admin-only "Drafts" entry point (Issue #77) ---
+
+  testWidgets('shows the Drafts button when the caller is an admin',
+      (tester) async {
+    final authService = _FakeAuthService(initialSession: _fakeSession());
+    final profileClient =
+        _FakeProfileApiClient(getMeResult: _fakeProfile(UserRole.admin));
+
+    await tester.pumpWidget(wrapWithAdminDeps(
+      authService: authService,
+      profileApiClient: profileClient,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Drafts'), findsOneWidget);
+    authService.disposeFake();
+  });
+
+  testWidgets('does not show the Drafts button for a parent', (tester) async {
+    final authService = _FakeAuthService(initialSession: _fakeSession());
+    final profileClient =
+        _FakeProfileApiClient(getMeResult: _fakeProfile(UserRole.parent));
+
+    await tester.pumpWidget(wrapWithAdminDeps(
+      authService: authService,
+      profileApiClient: profileClient,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Drafts'), findsNothing);
+    authService.disposeFake();
+  });
+
+  testWidgets('does not show the Drafts button when signed out',
+      (tester) async {
+    final authService = _FakeAuthService(initialSession: null);
+    final profileClient =
+        _FakeProfileApiClient(getMeResult: _fakeProfile(UserRole.admin));
+
+    await tester.pumpWidget(wrapWithAdminDeps(
+      authService: authService,
+      profileApiClient: profileClient,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Drafts'), findsNothing);
+    authService.disposeFake();
+  });
+
+  testWidgets('tapping Drafts navigates to DraftEventsScreen', (tester) async {
+    final authService = _FakeAuthService(initialSession: _fakeSession());
+    final profileClient =
+        _FakeProfileApiClient(getMeResult: _fakeProfile(UserRole.admin));
+
+    await tester.pumpWidget(wrapWithAdminDeps(
+      authService: authService,
+      profileApiClient: profileClient,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Drafts'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DraftEventsScreen), findsOneWidget);
+    authService.disposeFake();
+  });
+
+  testWidgets(
+      'returning from the Drafts screen refreshes the public events list',
+      (tester) async {
+    final authService = _FakeAuthService(initialSession: _fakeSession());
+    final profileClient =
+        _FakeProfileApiClient(getMeResult: _fakeProfile(UserRole.admin));
+    var getEventsCallCount = 0;
+    final apiClient = _StubApiClient(() async {
+      getEventsCallCount++;
+      return [];
+    });
+
+    await tester.pumpWidget(wrapWithAdminDeps(
+      authService: authService,
+      profileApiClient: profileClient,
+      apiClient: apiClient,
+    ));
+    await tester.pumpAndSettle();
+    expect(getEventsCallCount, 1);
+
+    await tester.tap(find.text('Drafts'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DraftEventsScreen), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DraftEventsScreen), findsNothing);
+    expect(getEventsCallCount, 2);
     authService.disposeFake();
   });
 }
