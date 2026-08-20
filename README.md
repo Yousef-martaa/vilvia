@@ -70,3 +70,9 @@ flutter run \
   --dart-define=SUPABASE_URL=<your-supabase-url> \
   --dart-define=SUPABASE_PUBLISHABLE_KEY=<your-supabase-key>
 ```
+
+## Building an Android release
+
+See `docs/RELEASE.md` for release-signing setup -- release builds require a
+local `android/key.properties` (never committed) and fail clearly if it's
+missing, rather than falling back to debug signing.
