@@ -117,6 +117,29 @@ backend/
 - Initial database migration
 - API endpoints
 
+## Rate limiting
+
+Every route except `GET /health` is rate-limited (see
+`docs/FEATURES/rate_limiting.md` for the full design). A caller that
+exceeds its limit gets `429 Too Many Requests`. Limits are configurable
+via `Settings`/`.env` (`RATE_LIMIT_*`, see `.env.example`); defaults:
+
+| Route | Limit | Keyed by |
+|-------|-------|----------|
+| `GET /resources`, `GET /resources/{id}`, `GET /events` | 60/minute | client IP |
+| `GET /me` | 60/minute | verified user |
+| `POST /me/bootstrap` | 10/minute | verified user |
+| `GET /events/drafts` | 60/minute | verified admin |
+| `POST /events`, `POST /events/{id}/publish` | 20/minute | verified admin |
+| `GET /health` | exempt | -- |
+
+Storage is in-memory and **per-process** -- correct for today's
+single-process deployment, not once Vilvia runs multiple workers or
+instances. See `docs/FEATURES/rate_limiting.md` for that limitation and
+the documented future upgrade path (swapping to a shared/Redis-backed
+store), and for why login/sign-up brute-force protection is a Supabase
+Auth concern rather than something this backend can do.
+
 ## Endpoints
 
 | Method | Path | Description |

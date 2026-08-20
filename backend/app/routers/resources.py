@@ -5,13 +5,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.core.rate_limit import rate_limit_public
+from app.core.settings import settings
 from app.models.resource import Resource
 from app.schemas.resource import ResourceDetailResponse, ResourceResponse
 
 router = APIRouter(prefix="/resources", tags=["resources"])
 
 
-@router.get("", response_model=list[ResourceResponse])
+@router.get(
+    "",
+    response_model=list[ResourceResponse],
+    dependencies=[
+        Depends(
+            rate_limit_public("resources:list", settings.rate_limit_public_per_minute)
+        )
+    ],
+)
 def get_resources(db: Session = Depends(get_db)) -> list[ResourceResponse]:
     result = db.execute(
         select(Resource)
@@ -21,7 +31,17 @@ def get_resources(db: Session = Depends(get_db)) -> list[ResourceResponse]:
     return result.scalars().all()
 
 
-@router.get("/{resource_id}", response_model=ResourceDetailResponse)
+@router.get(
+    "/{resource_id}",
+    response_model=ResourceDetailResponse,
+    dependencies=[
+        Depends(
+            rate_limit_public(
+                "resources:detail", settings.rate_limit_public_per_minute
+            )
+        )
+    ],
+)
 def get_resource(resource_id: uuid.UUID, db: Session = Depends(get_db)) -> Resource:
     resource = db.execute(
         select(Resource).where(

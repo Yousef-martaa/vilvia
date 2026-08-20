@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
+from app.core.rate_limit import rate_limit_admin, rate_limit_public
+from app.core.settings import settings
 from app.models.event import Event
 from app.models.profile import Profile
 from app.schemas.event import EventCreate, EventPublishRequest, EventResponse
@@ -13,7 +15,13 @@ from app.schemas.event import EventCreate, EventPublishRequest, EventResponse
 router = APIRouter(prefix="/events", tags=["events"])
 
 
-@router.get("", response_model=list[EventResponse])
+@router.get(
+    "",
+    response_model=list[EventResponse],
+    dependencies=[
+        Depends(rate_limit_public("events:list", settings.rate_limit_public_per_minute))
+    ],
+)
 def get_events(db: Session = Depends(get_db)) -> list[EventResponse]:
     result = db.execute(
         select(Event)
@@ -26,7 +34,15 @@ def get_events(db: Session = Depends(get_db)) -> list[EventResponse]:
     return result.scalars().all()
 
 
-@router.get("/drafts", response_model=list[EventResponse])
+@router.get(
+    "/drafts",
+    response_model=list[EventResponse],
+    dependencies=[
+        Depends(
+            rate_limit_admin("events:drafts", settings.rate_limit_admin_read_per_minute)
+        )
+    ],
+)
 def get_draft_events(
     admin_profile: Profile = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -44,7 +60,16 @@ def get_draft_events(
     return result.scalars().all()
 
 
-@router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=EventResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            rate_limit_admin("events:create", settings.rate_limit_admin_write_per_minute)
+        )
+    ],
+)
 def create_event(
     body: EventCreate,
     admin_profile: Profile = Depends(require_admin),
@@ -74,7 +99,17 @@ def create_event(
     return event
 
 
-@router.post("/{event_id}/publish", response_model=EventResponse)
+@router.post(
+    "/{event_id}/publish",
+    response_model=EventResponse,
+    dependencies=[
+        Depends(
+            rate_limit_admin(
+                "events:publish", settings.rate_limit_admin_write_per_minute
+            )
+        )
+    ],
+)
 def publish_event(
     event_id: uuid.UUID,
     _body: EventPublishRequest | None = None,
