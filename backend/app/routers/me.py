@@ -6,6 +6,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthenticatedUser, get_current_user, get_db
+from app.core.rate_limit import rate_limit_user
+from app.core.settings import settings
 from app.models.enums import UserRole
 from app.models.profile import Profile
 from app.schemas.profile import BootstrapRequest, ProfileResponse
@@ -15,7 +17,13 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/me", tags=["me"])
 
 
-@router.get("", response_model=ProfileResponse)
+@router.get(
+    "",
+    response_model=ProfileResponse,
+    dependencies=[
+        Depends(rate_limit_user("me:read", settings.rate_limit_me_read_per_minute))
+    ],
+)
 def get_me(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -32,7 +40,15 @@ def get_me(
     return profile
 
 
-@router.post("/bootstrap", response_model=ProfileResponse)
+@router.post(
+    "/bootstrap",
+    response_model=ProfileResponse,
+    dependencies=[
+        Depends(
+            rate_limit_user("me:bootstrap", settings.rate_limit_me_bootstrap_per_minute)
+        )
+    ],
+)
 def bootstrap_profile(
     body: BootstrapRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),
