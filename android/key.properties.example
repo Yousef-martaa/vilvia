@@ -1,0 +1,28 @@
+# Release signing config, loaded by android/app/build.gradle.kts. Copy this
+# file to android/key.properties (same directory) and fill in your real
+# values. Do not commit key.properties -- it's already gitignored.
+#
+# See docs/RELEASE.md for how to generate an upload keystore and for what
+# Play App Signing changes about how this key is used.
+#
+# Without this file, `flutter build apk --release` / `--appbundle` (and
+# `flutter run --release`) fail immediately with a clear error -- they never
+# silently fall back to debug signing.
+
+# Password for the keystore file itself.
+storePassword=
+
+# Password for the specific key (alias) within the keystore. Often the same
+# value as storePassword, but keytool lets them differ.
+keyPassword=
+
+# The alias you gave the key when generating the keystore (keytool -alias).
+keyAlias=upload
+
+# Path to the .jks/.keystore file. Resolved relative to android/app/ unless
+# absolute -- storing the keystore outside this repository entirely (not just
+# gitignored) is strongly recommended; an absolute path works fine here.
+# Examples:
+#   storeFile=../upload-keystore.jks
+#   storeFile=/absolute/path/to/vilvia-upload-keystore.jks
+storeFile=
