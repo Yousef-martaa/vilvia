@@ -90,6 +90,8 @@ which requires manual review before publication (see
 pytest tests/
 ```
 
+Pull requests and pushes to `main` also run this (and `flutter analyze`/`flutter test` for the frontend) automatically via CI -- see `.github/workflows/ci.yml`.
+
 ## Project Structure
 
 ```
