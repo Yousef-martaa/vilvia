@@ -167,11 +167,116 @@ into one generic `401`.
   CAPTCHA/bot protection. See the issue's investigation report for
   specific recommended values.
 - **Deferred to a future issue, not a blocker here**: CAPTCHA UI wiring
-  (needs a new Flutter dependency), and moving Flutter's session/token
-  storage off the SDK's default `SharedPreferences`-backed storage onto
-  OS-level secure storage (also a new dependency). Neither is required
-  for this issue's authentication/profile foundation to be correct.
+  (needs a new Flutter dependency).
 
 No blanket "OWASP compliant" or "secure against the OWASP Top 10" claim
 is made here -- the above is the specific, verifiable set of controls
 this issue establishes, not a general security guarantee.
+
+---
+
+## Implementation (Issue #85): secure on-device session storage
+
+### Why
+
+A production-readiness audit found that Supabase's default session
+storage on Android (`SharedPreferencesLocalStorage`) persists the access
+and refresh tokens as **plaintext** in an app-private XML file. That's
+protected only by normal Android per-app sandboxing, not by any
+app-level encryption -- readable on a rooted device, via `adb`-based
+extraction on a debuggable build, or from a lost/stolen device's
+storage.
+
+### What changed
+
+`lib/main.dart` now passes `authOptions:
+FlutterAuthClientOptions(localStorage: SecureLocalStorage(...))` to
+`Supabase.initialize`, replacing the SDK's default. `SecureLocalStorage`
+(`lib/core/storage/secure_local_storage.dart`) implements Supabase's own
+5-method `LocalStorage` interface, backed by
+[`flutter_secure_storage`](https://pub.dev/packages/flutter_secure_storage)
+11.0.0 with its current default `AndroidOptions()` -- RSA-OAEP key
+wrapping (Android Keystore-backed, non-exportable) + AES-GCM data
+encryption. This is **not** the deprecated Jetpack Security
+`encryptedSharedPreferences` option (removed from the package as of
+v10) -- no custom crypto was written for this; the encryption itself is
+entirely the maintained package's responsibility. `flutter_secure_storage`
+is cross-platform by design: the same Dart code will use iOS Keychain
+automatically once an iOS target exists in this repo (there isn't one
+yet), with no platform-conditional code needed here.
+
+`AuthService`, every auth screen, `ProfileApiClient`, and the backend's
+JWT verification are all unchanged -- this is purely a storage-backend
+swap behind `LocalStorage`'s existing opaque-string interface. Session
+restoration, token refresh, sign-in, sign-up, and logout all behave the
+same as before from the app's perspective; only *where* the session
+lives on disk changed.
+
+### One-time migration from the legacy plaintext session
+
+Devices that already had a signed-in session under the SDK's previous
+default storage are migrated automatically, once, the first time the
+app runs after this change (`SecureLocalStorage.initialize()`, called
+during `Supabase.initialize`):
+
+1. Read the legacy session string via Supabase's own
+   `SharedPreferencesLocalStorage` (not a reimplementation of
+   SharedPreferences access) -- the string is treated as fully opaque,
+   never parsed or reconstructed.
+2. Write that exact string into secure storage.
+3. Read it back and confirm it matches what was written.
+4. Only then delete the legacy plaintext entry.
+
+If the secure write throws, or the read-back doesn't match, the legacy
+value is left untouched rather than risking data loss -- migration
+simply retries on the next app launch. Nothing about the session or
+token contents is ever logged at any step. A device with no legacy
+session (a fresh install, or one already migrated) is a no-op.
+
+**User-visible effect**: a user with an existing session gets migrated
+silently and stays signed in. In the rare case the legacy read or the
+secure write genuinely fails, the user is signed out once and simply
+signs back in -- there is no data corruption or crash, only a fallback
+to the normal sign-in flow.
+
+### Failure behavior
+
+Reads from secure storage (`accessToken()`, `hasAccessToken()`) catch
+`PlatformException` specifically -- not a blanket exception handler --
+and treat it as "no persisted session" rather than crashing. This is the
+same outcome a user would see from a normal logged-out state; it isn't
+distinguished as an error state anywhere the user can see.
+
+### Android backup behavior
+
+Android's Auto Backup (device-to-device transfer and cloud backup) is
+**not** disabled app-wide (`android:allowBackup` is left at its
+platform default). Instead, `android/app/src/main/AndroidManifest.xml`
+narrowly excludes only the two SharedPreferences files
+`flutter_secure_storage` 11.0.0 uses on Android --
+`FlutterSecureStorage` and `FlutterSecureKeyStorage`, confirmed from the
+installed package's own Android source
+(`FlutterSecureStorageConfig.java`, `FlutterSecureStorage.java`) -- via
+`android:dataExtractionRules` (API 31+) and `android:fullBackupContent`
+(API 23-30), see `android/app/src/main/res/xml/data_extraction_rules.xml`
+and `backup_rules.xml`.
+
+This exists because the RSA key used to unwrap stored secrets is
+Keystore-bound and never transfers with a backup -- restoring these
+files onto a different device/Keystore would make them permanently
+undecryptable (and can throw `InvalidKeyException` before this app's
+own fail-safe reads even get a chance to handle it gracefully). The
+narrow exclusion was chosen over the blanket `allowBackup="false"` flag
+because Vilvia currently has no other local persistence that would
+benefit from Auto Backup, so there's no product-impact reason to
+disable it app-wide, and this keeps Auto Backup available for anything
+the app may persist locally in the future.
+
+### Logout
+
+`AuthService.signOut()` is unchanged -- it still calls
+`GoTrueClient.signOut()`, which internally calls the configured
+`LocalStorage.removePersistedSession()`. That now deletes the entry
+from secure storage instead of SharedPreferences, so logout removes the
+persisted session the same way it always did, just from the new
+storage.
