@@ -85,4 +85,53 @@ class EventsApiClient {
 
     return Event.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
+
+  /// Admin-only (enforced server-side by `require_admin`). Every
+  /// unpublished (draft) Event, newest-created first -- includes
+  /// past-dated drafts, since [publishEvent] rejects those rather than
+  /// this listing hiding them.
+  Future<List<Event>> getDraftEvents() async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/events/drafts'),
+      headers: _authHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load draft events: ${response.statusCode}');
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! List) {
+      throw Exception('Invalid response: expected a JSON list');
+    }
+
+    return decoded.cast<Map<String, dynamic>>().map(Event.fromJson).toList();
+  }
+
+  /// Admin-only (enforced server-side by `require_admin`). Publishes a
+  /// draft Event, making it eligible to appear in the public [getEvents]
+  /// list. Sends no request body -- there is nothing for the client to
+  /// set here beyond which Event to publish (the id, in the path).
+  ///
+  /// Idempotent for an already-published, still-upcoming Event (the
+  /// backend returns 200 again). Rejected with 409 if the Event's start
+  /// time has already passed -- see the thrown message.
+  Future<Event> publishEvent(String id) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/events/$id/publish'),
+      headers: _authHeaders(),
+    );
+
+    if (response.statusCode == 409) {
+      throw Exception(
+        "This event's start time has already passed and can no longer "
+        'be published.',
+      );
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Failed to publish event: ${response.statusCode}');
+    }
+
+    return Event.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
 }
