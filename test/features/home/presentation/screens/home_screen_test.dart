@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:vilvia/features/auth/data/auth_service.dart';
+import 'package:vilvia/features/community/presentation/screens/community_screen.dart';
 import 'package:vilvia/features/events/presentation/screens/events_screen.dart';
 import 'package:vilvia/features/home/presentation/screens/home_screen.dart';
 import 'package:vilvia/features/information/presentation/screens/resources_screen.dart';
@@ -61,5 +62,20 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.byType(EventsScreen), findsOneWidget);
+  });
+
+  testWidgets('tapping Explore Community navigates to CommunityScreen',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(wrap());
+    await tester.pump();
+
+    await tester.tap(find.text('Explore Community'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(CommunityScreen), findsOneWidget);
   });
 }
