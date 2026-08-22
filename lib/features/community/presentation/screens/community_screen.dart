@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 
+import 'package:vilvia/features/auth/data/auth_service.dart';
 import 'package:vilvia/features/community/data/community_api_client.dart';
 import 'package:vilvia/features/community/data/post.dart';
+import 'package:vilvia/features/community/presentation/screens/create_post_screen.dart';
 import 'package:vilvia/features/community/presentation/widgets/post_card.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
 
 class CommunityScreen extends StatefulWidget {
-  const CommunityScreen({super.key, this.apiClient});
+  const CommunityScreen({super.key, this.apiClient, this.authService});
 
   final CommunityApiClient? apiClient;
+  final AuthService? authService;
 
   @override
   State<CommunityScreen> createState() => _CommunityScreenState();
@@ -17,6 +20,7 @@ class CommunityScreen extends StatefulWidget {
 class _CommunityScreenState extends State<CommunityScreen> {
   late final CommunityApiClient _apiClient;
   late final bool _ownsClient;
+  late final AuthService _authService;
   List<Post>? _posts;
   bool _isLoading = true;
   String? _error;
@@ -24,9 +28,23 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   void initState() {
     super.initState();
+    _authService = widget.authService ?? AuthService();
     _ownsClient = widget.apiClient == null;
-    _apiClient = widget.apiClient ?? CommunityApiClient();
+    _apiClient =
+        widget.apiClient ??
+        CommunityApiClient(
+          accessToken: () => _authService.currentSession?.accessToken,
+        );
     _loadPosts();
+  }
+
+  Future<void> _openCreatePost() async {
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => CreatePostScreen(apiClient: _apiClient),
+      ),
+    );
+    if (created == true && mounted) await _loadPosts();
   }
 
   @override
@@ -62,6 +80,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openCreatePost,
+        icon: const Icon(Icons.add),
+        label: const Text('New Post'),
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

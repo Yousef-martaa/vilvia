@@ -69,6 +69,7 @@ share a counter just because the identity is the same.
 | `POST /me/bootstrap` | 10/minute | verified user | Idempotent but does a real write attempt; called ~once per signup plus occasional retries. |
 | `GET /events/drafts` | 60/minute | verified admin | Admin-only; mostly a safety net against a buggy/runaway admin client, not an external attack surface (non-admins never get past `require_admin`). |
 | `POST /events`, `POST /events/{id}/publish` | 20/minute | verified admin | Meaningful admin writes; plenty for real content workflows, curbs a compromised or buggy admin session. |
+| `POST /posts` | 10/minute | verified user | Dedicated community-write quota limits spam and accidental repeated submissions without consuming other authenticated-route quotas. |
 
 These are starting points, configurable via `Settings`/`.env`
 (`RATE_LIMIT_*`, see `backend/.env.example`) without a code change.
