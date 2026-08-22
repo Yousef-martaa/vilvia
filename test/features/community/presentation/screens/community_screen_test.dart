@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:vilvia/features/auth/data/auth_service.dart';
+import 'package:vilvia/features/community/data/comment.dart';
 import 'package:vilvia/features/community/data/community_api_client.dart';
 import 'package:vilvia/features/community/data/post.dart';
 import 'package:vilvia/features/community/presentation/screens/community_screen.dart';
@@ -58,6 +61,47 @@ class _CreateAndRefreshApiClient extends CommunityApiClient {
     required String body,
     required String category,
   }) async => _fakePost(title: title);
+}
+
+class _CommentsApiClient extends CommunityApiClient {
+  _CommentsApiClient() : super(baseUrl: 'http://test');
+
+  @override
+  Future<List<Post>> getPosts() async => [_fakePost()];
+
+  @override
+  Future<List<Comment>> getComments(String postId) async => [];
+
+  @override
+  Future<CreatedComment> createComment({
+    required String postId,
+    required String body,
+  }) async => CreatedComment(
+    comment: Comment(
+      id: 'comment-1',
+      authorName: 'Rowan',
+      authorAvatarUrl: null,
+      body: body,
+      createdAt: DateTime.utc(2026, 8, 22),
+      updatedAt: DateTime.utc(2026, 8, 22),
+    ),
+    commentCount: 4,
+  );
+}
+
+class _SignedInAuthService extends AuthService {
+  @override
+  Session? get currentSession => Session(
+    accessToken: 'token',
+    tokenType: 'bearer',
+    user: User(
+      id: 'user-1',
+      appMetadata: const {},
+      userMetadata: const {},
+      aud: 'authenticated',
+      createdAt: '2026-08-22T00:00:00Z',
+    ),
+  );
 }
 
 void main() {
@@ -155,5 +199,32 @@ void main() {
 
     expect(client.getCalls, 2);
     expect(find.text('Newly published post'), findsOneWidget);
+  });
+
+  testWidgets('comment creation updates the feed count from the server', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CommunityScreen(
+          apiClient: _CommentsApiClient(),
+          authService: _SignedInAuthService(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('2 reactions · 3 comments'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Add a comment'),
+      'New comment',
+    );
+    await tester.tap(find.text('Post Comment'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Close comments'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 reactions · 4 comments'), findsOneWidget);
   });
 }

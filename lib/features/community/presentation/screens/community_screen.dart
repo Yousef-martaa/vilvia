@@ -5,6 +5,7 @@ import 'package:vilvia/features/community/data/community_api_client.dart';
 import 'package:vilvia/features/community/data/post.dart';
 import 'package:vilvia/features/community/presentation/screens/create_post_screen.dart';
 import 'package:vilvia/features/community/presentation/widgets/post_card.dart';
+import 'package:vilvia/features/community/presentation/widgets/comments_sheet.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
 
 class CommunityScreen extends StatefulWidget {
@@ -45,6 +46,33 @@ class _CommunityScreenState extends State<CommunityScreen> {
       ),
     );
     if (created == true && mounted) await _loadPosts();
+  }
+
+  Future<void> _openComments(Post post) async {
+    var isSignedIn = false;
+    try {
+      isSignedIn = _authService.currentSession != null;
+    } catch (_) {
+      // Supabase is not initialized in some test/dev environments.
+    }
+    await showCommentsSheet(
+      context: context,
+      post: post,
+      apiClient: _apiClient,
+      isSignedIn: isSignedIn,
+      onCommentCountChanged: (count) {
+        if (!mounted) return;
+        setState(() {
+          _posts = _posts
+              ?.map(
+                (item) => item.id == post.id
+                    ? item.copyWith(commentCount: count)
+                    : item,
+              )
+              .toList();
+        });
+      },
+    );
   }
 
   @override
@@ -165,7 +193,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       itemCount: posts.length,
       separatorBuilder: (_, _) => const SizedBox(height: 12),
-      itemBuilder: (_, index) => PostCard(post: posts[index]),
+      itemBuilder: (_, index) => PostCard(
+        post: posts[index],
+        onCommentsTap: () => _openComments(posts[index]),
+      ),
     );
   }
 }
