@@ -18,15 +18,25 @@ Reliable information supports the community, while the community brings that inf
 - An account is required to create posts, comments, reactions, and reports.
 - Creating posts, comments, and reactions requires an account.
 
-### Read-only Feed
+### Feed and Post Creation
 
 The Community screen displays published posts from the public `GET /posts`
 endpoint, newest first. It handles loading, empty, and error states and allows
 a failed request to be retried. Browsing does not require authentication.
 
-The current feed is deliberately read-only. Post creation and editing,
-comments, reactions, reporting, moderation, post details, and pagination are
-not part of this implementation.
+Authenticated users can create posts with a title, body, and supported
+category. `POST /posts` derives ownership and author display data from the
+verified user's server-side Profile; clients cannot set ownership, publication
+state, counters, or other internal fields. A user without a matching Profile
+receives `409 Conflict` and can retry without losing their form content.
+
+Posts are published immediately (`is_published = true`) in the current MVP.
+After creation the client refreshes the Community feed so the post is visible
+right away. Moderation or a review-before-publication workflow may be introduced
+later as a separate feature.
+
+Editing, deleting, comments, reactions, reporting, moderation UI, post details,
+and pagination are not part of this implementation.
 
 ### User Interactions
 

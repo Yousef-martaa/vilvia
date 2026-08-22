@@ -98,6 +98,27 @@ def test_authenticated_route_returns_429_after_exceeding_the_limit():
     assert statuses[limit] == 429
 
 
+def test_community_write_route_has_its_own_per_user_limit():
+    limit = settings.rate_limit_community_write_per_minute
+    user = _override_current_user()
+    mock_db = _mock_db_with_profile(_full_profile(user.id))
+
+    def refresh(post):
+        post.id = uuid.uuid4()
+        post.reaction_count = 0
+        post.comment_count = 0
+        post.created_at = datetime.now(timezone.utc)
+        post.updated_at = post.created_at
+
+    mock_db.refresh.side_effect = refresh
+    body = {"title": "Question", "body": "Post body", "category": "qa"}
+
+    statuses = [client.post("/posts", json=body).status_code for _ in range(limit + 1)]
+
+    assert statuses[:limit] == [201] * limit
+    assert statuses[limit] == 429
+
+
 def test_admin_route_returns_429_after_exceeding_the_limit():
     limit = settings.rate_limit_admin_read_per_minute
     user = _override_current_user()

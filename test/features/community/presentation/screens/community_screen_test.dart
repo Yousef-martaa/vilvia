@@ -8,17 +8,17 @@ import 'package:vilvia/features/community/data/post.dart';
 import 'package:vilvia/features/community/presentation/screens/community_screen.dart';
 
 Post _fakePost({String title = 'First weeks with a newborn'}) => Post(
-      id: '1',
-      authorName: 'Alex',
-      authorAvatarUrl: 'https://example.com/avatar.png',
-      title: title,
-      body: 'A supportive community message.',
-      category: 'experiences',
-      reactionCount: 2,
-      commentCount: 3,
-      createdAt: DateTime.utc(2026, 8, 22),
-      updatedAt: DateTime.utc(2026, 8, 22),
-    );
+  id: '1',
+  authorName: 'Alex',
+  authorAvatarUrl: 'https://example.com/avatar.png',
+  title: title,
+  body: 'A supportive community message.',
+  category: 'experiences',
+  reactionCount: 2,
+  commentCount: 3,
+  createdAt: DateTime.utc(2026, 8, 22),
+  updatedAt: DateTime.utc(2026, 8, 22),
+);
 
 class _StubApiClient extends CommunityApiClient {
   _StubApiClient(this.getPostsResult) : super(baseUrl: 'http://test');
@@ -41,6 +41,25 @@ class _SpyApiClient extends CommunityApiClient {
   void close() => closeCalled = true;
 }
 
+class _CreateAndRefreshApiClient extends CommunityApiClient {
+  _CreateAndRefreshApiClient() : super(baseUrl: 'http://test');
+
+  int getCalls = 0;
+
+  @override
+  Future<List<Post>> getPosts() async {
+    getCalls++;
+    return getCalls == 1 ? [] : [_fakePost(title: 'Newly published post')];
+  }
+
+  @override
+  Future<Post> createPost({
+    required String title,
+    required String body,
+    required String category,
+  }) async => _fakePost(title: title);
+}
+
 void main() {
   Widget wrap(CommunityApiClient client) =>
       MaterialApp(home: CommunityScreen(apiClient: client));
@@ -52,11 +71,10 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
-  testWidgets('shows posts on success without loading a remote avatar',
-      (tester) async {
-    await tester.pumpWidget(
-      wrap(_StubApiClient(() async => [_fakePost()])),
-    );
+  testWidgets('shows posts on success without loading a remote avatar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(_StubApiClient(() async => [_fakePost()])));
     await tester.pumpAndSettle();
 
     expect(find.text('First weeks with a newborn'), findsOneWidget);
@@ -119,5 +137,23 @@ void main() {
     await tester.pumpWidget(const SizedBox());
 
     expect(client.closeCalled, isFalse);
+  });
+
+  testWidgets('successful creation refreshes the community feed', (
+    tester,
+  ) async {
+    final client = _CreateAndRefreshApiClient();
+    await tester.pumpWidget(wrap(client));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('New Post'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Title'), 'New post');
+    await tester.enterText(find.widgetWithText(TextField, 'Post'), 'Post body');
+    await tester.tap(find.text('Publish Post'));
+    await tester.pumpAndSettle();
+
+    expect(client.getCalls, 2);
+    expect(find.text('Newly published post'), findsOneWidget);
   });
 }

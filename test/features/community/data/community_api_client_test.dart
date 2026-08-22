@@ -25,17 +25,17 @@ void main() {
   const testBaseUrl = 'http://localhost';
 
   Map<String, dynamic> postJson() => {
-        'id': '123e4567-e89b-12d3-a456-426614174000',
-        'author_name': 'Alex',
-        'author_avatar_url': null,
-        'title': 'A community post',
-        'body': 'A supportive message.',
-        'category': 'experiences',
-        'reaction_count': 2,
-        'comment_count': 3,
-        'created_at': '2026-08-22T10:00:00Z',
-        'updated_at': '2026-08-22T10:00:00Z',
-      };
+    'id': '123e4567-e89b-12d3-a456-426614174000',
+    'author_name': 'Alex',
+    'author_avatar_url': null,
+    'title': 'A community post',
+    'body': 'A supportive message.',
+    'category': 'experiences',
+    'reaction_count': 2,
+    'comment_count': 3,
+    'created_at': '2026-08-22T10:00:00Z',
+    'updated_at': '2026-08-22T10:00:00Z',
+  };
 
   group('CommunityApiClient.getPosts', () {
     test('requests public posts and parses a successful response', () async {
@@ -85,6 +85,60 @@ void main() {
       );
 
       expect(api.getPosts(), throwsException);
+    });
+  });
+
+  group('CommunityApiClient.createPost', () {
+    test('sends only content fields with the bearer token', () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/posts');
+        expect(request.headers['Authorization'], 'Bearer token');
+        expect(jsonDecode(request.body), {
+          'title': 'Question',
+          'body': 'Post body',
+          'category': 'qa',
+        });
+        return http.Response(jsonEncode(postJson()), 201);
+      });
+      final api = CommunityApiClient(
+        client: client,
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      final post = await api.createPost(
+        title: 'Question',
+        body: 'Post body',
+        category: 'qa',
+      );
+
+      expect(post.title, 'A community post');
+    });
+
+    test('requires an active session before sending', () {
+      final api = CommunityApiClient(
+        client: MockClient((_) async => throw StateError('should not send')),
+        baseUrl: testBaseUrl,
+      );
+
+      expect(
+        api.createPost(title: 'Title', body: 'Body', category: 'qa'),
+        throwsStateError,
+      );
+    });
+
+    test('throws on a failed submission', () {
+      final api = CommunityApiClient(
+        client: MockClient((_) async => http.Response('conflict', 409)),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      expect(
+        api.createPost(title: 'Title', body: 'Body', category: 'qa'),
+        throwsException,
+      );
     });
   });
 

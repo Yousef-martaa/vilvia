@@ -4,9 +4,11 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import get_db
+from app.api.deps import AuthenticatedUser, get_current_user, get_db
 from app.main import app
+from app.models.enums import UserRole
 
 client = TestClient(app)
 
@@ -86,3 +88,131 @@ def test_get_posts_response_excludes_internal_fields():
     assert "report_count" not in data
     assert "is_published" not in data
     assert "related_resource_id" not in data
+
+
+def authenticated_post_db(profile=True):
+    user = AuthenticatedUser(id=uuid.uuid4(), email="parent@example.com")
+    app.dependency_overrides[get_current_user] = lambda: user
+    mock_db = MagicMock()
+    if profile:
+        stored_profile = MagicMock()
+        stored_profile.id = user.id
+        stored_profile.first_name = "Rowan"
+        stored_profile.role = UserRole.parent
+        mock_db.get.return_value = stored_profile
+    else:
+        mock_db.get.return_value = None
+
+    def refresh(post):
+        post.id = uuid.uuid4()
+        post.reaction_count = 0
+        post.comment_count = 0
+        post.created_at = datetime.now(timezone.utc)
+        post.updated_at = post.created_at
+
+    mock_db.refresh.side_effect = refresh
+    app.dependency_overrides[get_db] = lambda: mock_db
+    return user, mock_db
+
+
+def valid_create_body():
+    return {
+        "title": "  A useful question  ",
+        "body": "  How did you handle this stage?  ",
+        "category": "qa",
+    }
+
+
+def test_create_post_uses_verified_profile_and_publishes_immediately():
+    user, mock_db = authenticated_post_db()
+
+    response = client.post("/posts", json=valid_create_body())
+
+    assert response.status_code == 201
+    post = mock_db.add.call_args.args[0]
+    assert post.author_id == user.id
+    assert post.author_name == "Rowan"
+    assert post.author_avatar_url is None
+    assert post.title == "A useful question"
+    assert post.body == "How did you handle this stage?"
+    assert post.category.value == "qa"
+    assert post.is_published is True
+    mock_db.commit.assert_called_once_with()
+    mock_db.refresh.assert_called_once_with(post)
+
+
+def test_create_post_requires_authentication():
+    mock_db_returning([])
+
+    response = client.post("/posts", json=valid_create_body())
+
+    assert response.status_code == 401
+
+
+def test_create_post_returns_409_when_verified_user_has_no_profile():
+    _, mock_db = authenticated_post_db(profile=False)
+
+    response = client.post("/posts", json=valid_create_body())
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A Profile is required before creating a post."
+    mock_db.add.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "internal_field",
+    [
+        "author_id",
+        "author_name",
+        "author_avatar_url",
+        "is_published",
+        "reaction_count",
+        "comment_count",
+        "report_count",
+        "related_resource_id",
+        "id",
+    ],
+)
+def test_create_post_strictly_rejects_internal_fields(internal_field):
+    authenticated_post_db()
+    body = valid_create_body()
+    body[internal_field] = True
+
+    response = client.post("/posts", json=body)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("title", ""),
+        ("title", " " * 3),
+        ("title", "x" * 201),
+        ("body", ""),
+        ("body", " " * 3),
+        ("body", "x" * 5001),
+        ("category", "not_a_category"),
+    ],
+)
+def test_create_post_validates_content(field, value):
+    authenticated_post_db()
+    body = valid_create_body()
+    body[field] = value
+
+    response = client.post("/posts", json=body)
+
+    assert response.status_code == 422
+
+
+def test_create_post_rolls_back_integrity_error_and_returns_controlled_conflict():
+    _, mock_db = authenticated_post_db()
+    mock_db.commit.side_effect = IntegrityError("statement", {}, Exception("db"))
+
+    response = client.post("/posts", json=valid_create_body())
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "The post could not be created because of a data conflict."
+    )
+    mock_db.rollback.assert_called_once_with()
