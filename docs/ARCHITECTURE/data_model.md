@@ -169,7 +169,8 @@ updatedAt: timestamp
 
 Notes:
 
-- `authorId` links the post to the user who created it.
+- `authorId` is a required foreign key to `profiles.id`, linking the post to the user who created it.
+- Profile deletion is restricted while authored posts still exist, preventing the silent deletion of community discussions. A future account-deletion or anonymization flow must handle retained content explicitly.
 - `authorName` and `authorAvatarUrl` are intentionally duplicated to improve feed performance.
 - Community posts are user-generated content and should not be treated as trusted official information.
 - This duplication is intentional to reduce joins when displaying the community feed.
@@ -205,7 +206,8 @@ updatedAt: timestamp
 
 Notes:
 
-- `postId` links the comment to its parent post.
+- `postId` is a required foreign key to `posts.id`. Deleting a post cascades to its comments because comments have no independent lifecycle without their parent post.
+- `authorId` is a required foreign key to `profiles.id`. Profile deletion is restricted while authored comments still exist, so community content is not silently removed.
 - `authorName` and `authorAvatarUrl` are intentionally duplicated to improve read performance.
 - Comments are user-generated content and should not be treated as trusted information.
 - Comments may be reported for moderation.
