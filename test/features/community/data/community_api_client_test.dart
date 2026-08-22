@@ -37,6 +37,15 @@ void main() {
     'updated_at': '2026-08-22T10:00:00Z',
   };
 
+  Map<String, dynamic> commentJson() => {
+    'id': '223e4567-e89b-12d3-a456-426614174000',
+    'author_name': 'Rowan',
+    'author_avatar_url': null,
+    'body': 'A comment.',
+    'created_at': '2026-08-22T11:00:00Z',
+    'updated_at': '2026-08-22T11:00:00Z',
+  };
+
   group('CommunityApiClient.getPosts', () {
     test('requests public posts and parses a successful response', () async {
       final client = MockClient((request) async {
@@ -137,6 +146,85 @@ void main() {
 
       expect(
         api.createPost(title: 'Title', body: 'Body', category: 'qa'),
+        throwsException,
+      );
+    });
+  });
+
+  group('CommunityApiClient comments', () {
+    test('reads comments publicly', () async {
+      final api = CommunityApiClient(
+        client: MockClient((request) async {
+          expect(request.method, 'GET');
+          expect(request.url.path, '/posts/post-1/comments');
+          expect(request.headers.containsKey('Authorization'), isFalse);
+          return http.Response(jsonEncode([commentJson()]), 200);
+        }),
+        baseUrl: testBaseUrl,
+      );
+
+      final comments = await api.getComments('post-1');
+
+      expect(comments.single.authorName, 'Rowan');
+      expect(comments.single.body, 'A comment.');
+    });
+
+    test('rejects a non-list comments response', () {
+      final api = CommunityApiClient(
+        client: MockClient((_) async => http.Response('{}', 200)),
+        baseUrl: testBaseUrl,
+      );
+
+      expect(api.getComments('post-1'), throwsException);
+    });
+
+    test(
+      'creates a body-only comment and parses authoritative count',
+      () async {
+        final api = CommunityApiClient(
+          client: MockClient((request) async {
+            expect(request.method, 'POST');
+            expect(request.url.path, '/posts/post-1/comments');
+            expect(request.headers['Authorization'], 'Bearer token');
+            expect(jsonDecode(request.body), {'body': 'Hello'});
+            return http.Response(
+              jsonEncode({'comment': commentJson(), 'comment_count': 4}),
+              201,
+            );
+          }),
+          baseUrl: testBaseUrl,
+          accessToken: () => 'token',
+        );
+
+        final created = await api.createComment(
+          postId: 'post-1',
+          body: 'Hello',
+        );
+
+        expect(created.comment.body, 'A comment.');
+        expect(created.commentCount, 4);
+      },
+    );
+
+    test('comment creation requires a session', () {
+      final api = CommunityApiClient(baseUrl: testBaseUrl);
+
+      expect(
+        api.createComment(postId: 'post-1', body: 'Hello'),
+        throwsStateError,
+      );
+    });
+
+    test('comment requests throw on unsuccessful responses', () {
+      final api = CommunityApiClient(
+        client: MockClient((request) async => http.Response('error', 404)),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      expect(api.getComments('post-1'), throwsException);
+      expect(
+        api.createComment(postId: 'post-1', body: 'Hello'),
         throwsException,
       );
     });

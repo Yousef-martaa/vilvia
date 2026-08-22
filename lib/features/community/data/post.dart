@@ -37,4 +37,17 @@ class Post {
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
   }
+
+  Post copyWith({int? commentCount}) => Post(
+    id: id,
+    authorName: authorName,
+    authorAvatarUrl: authorAvatarUrl,
+    title: title,
+    body: body,
+    category: category,
+    reactionCount: reactionCount,
+    commentCount: commentCount ?? this.commentCount,
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+  );
 }

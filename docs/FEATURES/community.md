@@ -35,8 +35,25 @@ After creation the client refreshes the Community feed so the post is visible
 right away. Moderation or a review-before-publication workflow may be introduced
 later as a separate feature.
 
-Editing, deleting, comments, reactions, reporting, moderation UI, post details,
-and pagination are not part of this implementation.
+### Comments
+
+Anyone can read the oldest-first comments for a published post through
+`GET /posts/{post_id}/comments`. The Community feed opens comments in a modal
+bottom sheet; no post-detail route is required. Missing and unpublished posts
+both return `404 Not Found`, so unpublished content is not disclosed.
+
+Signed-in users with a server-side Profile can add a plain-text comment through
+`POST /posts/{post_id}/comments`. Ownership and author display data come only
+from the verified identity and matching Profile. The body is limited to
+1-2000 characters, and all internal fields are rejected. Comment creation and
+the Post's denormalized `comment_count` increment occur in one transaction
+while the published Post row is locked, preventing lost increments from
+concurrent submissions. The response includes the new comment and authoritative
+count so the sheet and feed remain consistent immediately.
+
+Editing or deleting posts/comments, reactions, replies, reporting, moderation
+UI, notifications, post details, and pagination are not part of this
+implementation.
 
 ### User Interactions
 

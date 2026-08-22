@@ -70,6 +70,8 @@ share a counter just because the identity is the same.
 | `GET /events/drafts` | 60/minute | verified admin | Admin-only; mostly a safety net against a buggy/runaway admin client, not an external attack surface (non-admins never get past `require_admin`). |
 | `POST /events`, `POST /events/{id}/publish` | 20/minute | verified admin | Meaningful admin writes; plenty for real content workflows, curbs a compromised or buggy admin session. |
 | `POST /posts` | 10/minute | verified user | Dedicated community-write quota limits spam and accidental repeated submissions without consuming other authenticated-route quotas. |
+| `GET /posts/{id}/comments` | 60/minute | client IP | Public discussion reads use the existing public-read setting. |
+| `POST /posts/{id}/comments` | 10/minute | verified user | Reuses the community-write setting with its own endpoint scope, so comment submissions do not consume the post-creation counter. |
 
 These are starting points, configurable via `Settings`/`.env`
 (`RATE_LIMIT_*`, see `backend/.env.example`) without a code change.

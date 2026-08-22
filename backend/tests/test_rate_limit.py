@@ -20,6 +20,7 @@ from app.api.deps import AuthenticatedUser, get_current_user, get_db
 from app.core.rate_limit import reset_rate_limit_storage
 from app.core.settings import settings
 from app.main import app
+from app.models.comment import Comment
 from app.models.enums import UserRole
 
 client = TestClient(app)
@@ -114,6 +115,53 @@ def test_community_write_route_has_its_own_per_user_limit():
     body = {"title": "Question", "body": "Post body", "category": "qa"}
 
     statuses = [client.post("/posts", json=body).status_code for _ in range(limit + 1)]
+
+    assert statuses[:limit] == [201] * limit
+    assert statuses[limit] == 429
+
+
+def test_public_comment_read_uses_the_public_limit():
+    limit = settings.rate_limit_public_per_minute
+    ip_client = TestClient(app, client=("203.0.113.11", 12345))
+    post = MagicMock()
+    post.id = uuid.uuid4()
+    mock_db = MagicMock()
+    mock_db.execute.return_value.scalar_one_or_none.return_value = post
+    mock_db.execute.return_value.scalars.return_value.all.return_value = []
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    statuses = [
+        ip_client.get(f"/posts/{post.id}/comments").status_code
+        for _ in range(limit + 1)
+    ]
+
+    assert statuses[:limit] == [200] * limit
+    assert statuses[limit] == 429
+
+
+def test_comment_creation_reuses_community_write_limit_with_separate_scope():
+    limit = settings.rate_limit_community_write_per_minute
+    user = _override_current_user()
+    profile = _full_profile(user.id)
+    post = MagicMock()
+    post.id = uuid.uuid4()
+    post.comment_count = 0
+    mock_db = _mock_db_with_profile(profile)
+    mock_db.execute.return_value.scalar_one_or_none.return_value = post
+
+    def refresh(instance):
+        if isinstance(instance, Comment):
+            instance.id = uuid.uuid4()
+            instance.created_at = datetime.now(timezone.utc)
+            instance.updated_at = instance.created_at
+
+    mock_db.refresh.side_effect = refresh
+    body = {"body": "A comment"}
+
+    statuses = [
+        client.post(f"/posts/{post.id}/comments", json=body).status_code
+        for _ in range(limit + 1)
+    ]
 
     assert statuses[:limit] == [201] * limit
     assert statuses[limit] == 429

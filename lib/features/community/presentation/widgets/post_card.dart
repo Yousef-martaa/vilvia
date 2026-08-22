@@ -6,9 +6,10 @@ import 'package:vilvia/theme/vilvia_colors.dart';
 import 'package:vilvia/widgets/tag_chip.dart';
 
 class PostCard extends StatelessWidget {
-  const PostCard({super.key, required this.post});
+  const PostCard({super.key, required this.post, this.onCommentsTap});
 
   final Post post;
+  final VoidCallback? onCommentsTap;
 
   @override
   Widget build(BuildContext context) {
@@ -72,9 +73,15 @@ class PostCard extends StatelessWidget {
             style: textTheme.bodyMedium?.copyWith(color: VilviaColors.gray),
           ),
           const SizedBox(height: 12),
-          Text(
-            '${post.reactionCount} reactions · ${post.commentCount} comments',
-            style: textTheme.bodySmall?.copyWith(color: VilviaColors.gray),
+          InkWell(
+            onTap: onCommentsTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '${post.reactionCount} reactions · ${post.commentCount} comments',
+                style: textTheme.bodySmall?.copyWith(color: VilviaColors.gray),
+              ),
+            ),
           ),
         ],
       ),
@@ -91,8 +98,10 @@ String _categoryLabel(String category) {
   if (category == 'qa') return 'Q&A';
   return category
       .split('_')
-      .map((word) => word.isEmpty
-          ? word
-          : '${word[0].toUpperCase()}${word.substring(1)}')
+      .map(
+        (word) => word.isEmpty
+            ? word
+            : '${word[0].toUpperCase()}${word.substring(1)}',
+      )
       .join(' ');
 }
