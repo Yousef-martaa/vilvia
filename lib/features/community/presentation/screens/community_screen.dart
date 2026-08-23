@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:vilvia/features/auth/data/auth_service.dart';
 import 'package:vilvia/features/community/data/community_api_client.dart';
@@ -22,8 +25,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
   late final CommunityApiClient _apiClient;
   late final bool _ownsClient;
   late final AuthService _authService;
+  StreamSubscription<AuthState>? _authSubscription;
   List<Post>? _posts;
   bool _isLoading = true;
+  bool _isSignedIn = false;
   String? _error;
 
   @override
@@ -36,6 +41,15 @@ class _CommunityScreenState extends State<CommunityScreen> {
         CommunityApiClient(
           accessToken: () => _authService.currentSession?.accessToken,
         );
+    try {
+      _isSignedIn = _authService.currentSession != null;
+      _authSubscription = _authService.onAuthStateChange.listen((state) {
+        if (!mounted) return;
+        setState(() => _isSignedIn = state.session != null);
+      });
+    } catch (_) {
+      // Auth is not initialized in some test/dev environments.
+    }
     _loadPosts();
   }
 
@@ -77,6 +91,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     if (_ownsClient) _apiClient.close();
     super.dispose();
   }
@@ -108,11 +123,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openCreatePost,
-        icon: const Icon(Icons.add),
-        label: const Text('New Post'),
-      ),
+      floatingActionButton: _isSignedIn
+          ? FloatingActionButton.extended(
+              onPressed: _openCreatePost,
+              icon: const Icon(Icons.add),
+              label: const Text('New Post'),
+            )
+          : null,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
