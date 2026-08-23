@@ -89,24 +89,88 @@ class _CommentsApiClient extends CommunityApiClient {
   );
 }
 
-class _SignedInAuthService extends AuthService {
+Session _session() => Session(
+  accessToken: 'token',
+  tokenType: 'bearer',
+  user: User(
+    id: 'user-1',
+    appMetadata: const {},
+    userMetadata: const {},
+    aud: 'authenticated',
+    createdAt: '2026-08-22T00:00:00Z',
+  ),
+);
+
+class _FakeAuthService extends AuthService {
+  _FakeAuthService({Session? session}) : _currentSession = session;
+
+  final _controller = StreamController<AuthState>.broadcast();
+  Session? _currentSession;
+
   @override
-  Session? get currentSession => Session(
-    accessToken: 'token',
-    tokenType: 'bearer',
-    user: User(
-      id: 'user-1',
-      appMetadata: const {},
-      userMetadata: const {},
-      aud: 'authenticated',
-      createdAt: '2026-08-22T00:00:00Z',
-    ),
-  );
+  Session? get currentSession => _currentSession;
+
+  @override
+  Stream<AuthState> get onAuthStateChange => _controller.stream;
+
+  void emit(Session? session) {
+    _currentSession = session;
+    _controller.add(AuthState(AuthChangeEvent.signedIn, session));
+  }
+
+  Future<void> close() => _controller.close();
 }
 
 void main() {
-  Widget wrap(CommunityApiClient client) =>
-      MaterialApp(home: CommunityScreen(apiClient: client));
+  Widget wrap(CommunityApiClient client, {AuthService? authService}) =>
+      MaterialApp(
+        home: CommunityScreen(
+          apiClient: client,
+          authService: authService ?? _FakeAuthService(),
+        ),
+      );
+
+  testWidgets('signed-out users can browse posts without New Post', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(_StubApiClient(() async => [_fakePost()])));
+    await tester.pumpAndSettle();
+
+    expect(find.text('First weeks with a newborn'), findsOneWidget);
+    expect(find.text('2 reactions · 3 comments'), findsOneWidget);
+    expect(find.text('New Post'), findsNothing);
+  });
+
+  testWidgets('signed-in users see New Post', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        _StubApiClient(() async => []),
+        authService: _FakeAuthService(session: _session()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('New Post'), findsOneWidget);
+  });
+
+  testWidgets('auth-state changes update New Post visibility', (tester) async {
+    final authService = _FakeAuthService();
+    await tester.pumpWidget(
+      wrap(_StubApiClient(() async => []), authService: authService),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('New Post'), findsNothing);
+
+    authService.emit(_session());
+    await tester.pumpAndSettle();
+    expect(find.text('New Post'), findsOneWidget);
+
+    authService.emit(null);
+    await tester.pumpAndSettle();
+    expect(find.text('New Post'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await authService.close();
+  });
 
   testWidgets('shows loading while the request is pending', (tester) async {
     final completer = Completer<List<Post>>();
@@ -187,7 +251,9 @@ void main() {
     tester,
   ) async {
     final client = _CreateAndRefreshApiClient();
-    await tester.pumpWidget(wrap(client));
+    await tester.pumpWidget(
+      wrap(client, authService: _FakeAuthService(session: _session())),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('New Post'));
@@ -208,7 +274,7 @@ void main() {
       MaterialApp(
         home: CommunityScreen(
           apiClient: _CommentsApiClient(),
-          authService: _SignedInAuthService(),
+          authService: _FakeAuthService(session: _session()),
         ),
       ),
     );
