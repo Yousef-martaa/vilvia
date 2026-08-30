@@ -178,6 +178,30 @@ Notes:
 
 ---
 
+## `post_reactions`
+
+`post_reactions` is the source of truth for reactions on community posts.
+
+Example fields:
+
+```text
+postId: string
+profileId: string
+createdAt: timestamp
+```
+
+Notes:
+
+- `(postId, profileId)` is the composite primary key, guaranteeing at most one
+  reaction per user per post.
+- Both foreign keys use `ON DELETE CASCADE`, because a reaction has no lifecycle
+  without its Post or owning Profile.
+- `posts.reactionCount` is a denormalized display counter. Supported mutations
+  lock the Post row and recalculate it from `post_reactions` in the same
+  transaction.
+
+---
+
 ## `comments`
 
 The `comments` table stores comments made on community posts.

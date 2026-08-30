@@ -6,6 +6,7 @@ class Post {
   final String body;
   final String category;
   final int reactionCount;
+  final bool hasReacted;
   final int commentCount;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -18,6 +19,7 @@ class Post {
     required this.body,
     required this.category,
     required this.reactionCount,
+    required this.hasReacted,
     required this.commentCount,
     required this.createdAt,
     required this.updatedAt,
@@ -32,22 +34,25 @@ class Post {
       body: json['body'] as String,
       category: json['category'] as String,
       reactionCount: json['reaction_count'] as int,
+      hasReacted: json['has_reacted'] as bool,
       commentCount: json['comment_count'] as int,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
   }
 
-  Post copyWith({int? commentCount}) => Post(
-    id: id,
-    authorName: authorName,
-    authorAvatarUrl: authorAvatarUrl,
-    title: title,
-    body: body,
-    category: category,
-    reactionCount: reactionCount,
-    commentCount: commentCount ?? this.commentCount,
-    createdAt: createdAt,
-    updatedAt: updatedAt,
-  );
+  Post copyWith({int? reactionCount, bool? hasReacted, int? commentCount}) =>
+      Post(
+        id: id,
+        authorName: authorName,
+        authorAvatarUrl: authorAvatarUrl,
+        title: title,
+        body: body,
+        category: category,
+        reactionCount: reactionCount ?? this.reactionCount,
+        hasReacted: hasReacted ?? this.hasReacted,
+        commentCount: commentCount ?? this.commentCount,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
 }

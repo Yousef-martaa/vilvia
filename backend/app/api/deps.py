@@ -71,6 +71,19 @@ def get_current_user(
     return AuthenticatedUser(id=user_id, email=email)
 
 
+def get_optional_current_user(
+    authorization: str | None = Header(default=None),
+) -> AuthenticatedUser | None:
+    """Return no identity when no credentials were supplied.
+
+    A supplied bearer token is still verified normally, so malformed or
+    invalid credentials never silently downgrade a caller to anonymous.
+    """
+    if authorization is None:
+        return None
+    return get_current_user(authorization)
+
+
 def require_admin(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),

@@ -32,6 +32,7 @@ void main() {
     'body': 'A supportive message.',
     'category': 'experiences',
     'reaction_count': 2,
+    'has_reacted': false,
     'comment_count': 3,
     'created_at': '2026-08-22T10:00:00Z',
     'updated_at': '2026-08-22T10:00:00Z',
@@ -63,6 +64,7 @@ void main() {
       expect(posts.single.authorAvatarUrl, isNull);
       expect(posts.single.title, 'A community post');
       expect(posts.single.reactionCount, 2);
+      expect(posts.single.hasReacted, isFalse);
       expect(posts.single.commentCount, 3);
       expect(posts.single.createdAt, DateTime.utc(2026, 8, 22, 10));
     });
@@ -71,6 +73,19 @@ void main() {
       final api = CommunityApiClient(
         client: MockClient((_) async => http.Response('[]', 200)),
         baseUrl: testBaseUrl,
+      );
+
+      expect(await api.getPosts(), isEmpty);
+    });
+
+    test('supplies authentication when a session exists', () async {
+      final api = CommunityApiClient(
+        client: MockClient((request) async {
+          expect(request.headers['Authorization'], 'Bearer token');
+          return http.Response('[]', 200);
+        }),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
       );
 
       expect(await api.getPosts(), isEmpty);
@@ -94,6 +109,71 @@ void main() {
       );
 
       expect(api.getPosts(), throwsException);
+    });
+  });
+
+  group('CommunityApiClient reactions', () {
+    test('sends authenticated PUT and parses authoritative state', () async {
+      final api = CommunityApiClient(
+        client: MockClient((request) async {
+          expect(request.method, 'PUT');
+          expect(request.url.path, '/posts/post-1/reaction');
+          expect(request.headers['Authorization'], 'Bearer token');
+          return http.Response(
+            jsonEncode({'reacted': true, 'reaction_count': 3}),
+            200,
+          );
+        }),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      final result = await api.setPostReaction(postId: 'post-1', reacted: true);
+
+      expect(result.reacted, isTrue);
+      expect(result.reactionCount, 3);
+    });
+
+    test('sends authenticated DELETE', () async {
+      final api = CommunityApiClient(
+        client: MockClient((request) async {
+          expect(request.method, 'DELETE');
+          expect(request.url.path, '/posts/post-1/reaction');
+          expect(request.headers['Authorization'], 'Bearer token');
+          return http.Response(
+            jsonEncode({'reacted': false, 'reaction_count': 1}),
+            200,
+          );
+        }),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      final result = await api.setPostReaction(
+        postId: 'post-1',
+        reacted: false,
+      );
+
+      expect(result.reacted, isFalse);
+      expect(result.reactionCount, 1);
+    });
+
+    test('requires a session and preserves server failures', () {
+      final signedOut = CommunityApiClient(baseUrl: testBaseUrl);
+      final failing = CommunityApiClient(
+        client: MockClient((_) async => http.Response('error', 409)),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      expect(
+        signedOut.setPostReaction(postId: 'post-1', reacted: true),
+        throwsStateError,
+      );
+      expect(
+        failing.setPostReaction(postId: 'post-1', reacted: true),
+        throwsException,
+      );
     });
   });
 
