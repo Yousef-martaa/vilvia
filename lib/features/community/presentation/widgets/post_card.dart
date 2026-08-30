@@ -11,6 +11,7 @@ class PostCard extends StatelessWidget {
     required this.post,
     required this.isSignedIn,
     required this.isReactionPending,
+    this.onReportTap,
     this.onReactionTap,
     this.onCommentsTap,
   });
@@ -18,6 +19,7 @@ class PostCard extends StatelessWidget {
   final Post post;
   final bool isSignedIn;
   final bool isReactionPending;
+  final VoidCallback? onReportTap;
   final VoidCallback? onReactionTap;
   final VoidCallback? onCommentsTap;
 
@@ -69,6 +71,13 @@ class PostCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (isSignedIn)
+                IconButton(
+                  onPressed: onReportTap,
+                  icon: const Icon(Icons.flag_outlined),
+                  tooltip: 'Report post',
+                  visualDensity: VisualDensity.compact,
+                ),
               TagChip(
                 label: _categoryLabel(post.category),
                 color: VilviaColors.terracotta,

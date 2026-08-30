@@ -310,6 +310,92 @@ void main() {
     });
   });
 
+  group('CommunityApiClient reports', () {
+    test('reports posts with authenticated PUT and parses count', () async {
+      final api = CommunityApiClient(
+        client: MockClient((request) async {
+          expect(request.method, 'PUT');
+          expect(request.url.path, '/posts/post-1/report');
+          expect(request.headers['Authorization'], 'Bearer token');
+          expect(jsonDecode(request.body), {'reason': 'Unsafe advice'});
+          return http.Response(
+            jsonEncode({'reported': true, 'report_count': 2}),
+            200,
+          );
+        }),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      final result = await api.reportPost(
+        postId: 'post-1',
+        reason: 'Unsafe advice',
+      );
+
+      expect(result.reported, isTrue);
+      expect(result.reportCount, 2);
+    });
+
+    test('reports comments through the nested authenticated path', () async {
+      final api = CommunityApiClient(
+        client: MockClient((request) async {
+          expect(request.method, 'PUT');
+          expect(request.url.path, '/posts/post-1/comments/comment-1/report');
+          expect(request.headers['Authorization'], 'Bearer token');
+          expect(jsonDecode(request.body), {'reason': 'Harassment'});
+          return http.Response(
+            jsonEncode({'reported': true, 'report_count': 1}),
+            200,
+          );
+        }),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      final result = await api.reportComment(
+        postId: 'post-1',
+        commentId: 'comment-1',
+        reason: 'Harassment',
+      );
+
+      expect(result.reportCount, 1);
+    });
+
+    test('requires a session without sending a request', () {
+      var sent = false;
+      final api = CommunityApiClient(
+        client: MockClient((_) async {
+          sent = true;
+          return http.Response('{}', 200);
+        }),
+        baseUrl: testBaseUrl,
+      );
+
+      expect(
+        api.reportPost(postId: 'post-1', reason: 'Reason'),
+        throwsStateError,
+      );
+      expect(sent, isFalse);
+    });
+
+    test('throws on an unsuccessful report response', () {
+      final api = CommunityApiClient(
+        client: MockClient((_) async => http.Response('error', 404)),
+        baseUrl: testBaseUrl,
+        accessToken: () => 'token',
+      );
+
+      expect(
+        api.reportComment(
+          postId: 'post-1',
+          commentId: 'comment-1',
+          reason: 'Reason',
+        ),
+        throwsException,
+      );
+    });
+  });
+
   group('CommunityApiClient.close', () {
     test('does not close an injected client', () {
       final client = _TrackingClient();

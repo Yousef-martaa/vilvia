@@ -50,11 +50,6 @@ class PostCategory(str, enum.Enum):
     meetups = "meetups"
 
 
-class ReportTargetType(str, enum.Enum):
-    post = "post"
-    comment = "comment"
-
-
 class ReportStatus(str, enum.Enum):
     pending = "pending"
     reviewed = "reviewed"

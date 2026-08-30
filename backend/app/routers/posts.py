@@ -17,8 +17,10 @@ from app.models.comment import Comment
 from app.models.post import Post
 from app.models.post_reaction import PostReaction
 from app.models.profile import Profile
+from app.models.report import Report
 from app.schemas.comment import CommentCreate, CommentCreateResponse, CommentResponse
 from app.schemas.post import PostCreate, PostReactionResponse, PostResponse
+from app.schemas.report import ReportCreate, ReportResponse
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -199,6 +201,137 @@ def remove_reaction(
 ) -> PostReactionResponse:
     return _set_reaction(
         post_id=post_id, reacted=False, current_user=current_user, db=db
+    )
+
+
+def _save_report(
+    *,
+    target: Post | Comment,
+    target_column,
+    target_values: dict,
+    body: ReportCreate,
+    profile: Profile,
+    db: Session,
+) -> ReportResponse:
+    report = db.execute(
+        select(Report).where(
+            target_column == target.id,
+            Report.reported_by == profile.id,
+        )
+    ).scalar_one_or_none()
+    if report is None:
+        report = Report(
+            **target_values,
+            reported_by=profile.id,
+            reason=body.reason,
+        )
+        db.add(report)
+    else:
+        report.reason = body.reason
+
+    try:
+        db.flush()
+        target.report_count = db.scalar(
+            select(func.count()).select_from(Report).where(
+                target_column == target.id
+            )
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The report could not be submitted because of a data conflict.",
+        ) from None
+
+    return ReportResponse(reported=True, report_count=target.report_count)
+
+
+def _reporter_profile(
+    current_user: AuthenticatedUser, db: Session
+) -> Profile:
+    profile = db.get(Profile, current_user.id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A Profile is required before reporting community content.",
+        )
+    return profile
+
+
+@router.put(
+    "/{post_id}/report",
+    response_model=ReportResponse,
+    dependencies=[
+        Depends(
+            rate_limit_user(
+                "reports:create", settings.rate_limit_community_write_per_minute
+            )
+        )
+    ],
+)
+def report_post(
+    post_id: uuid.UUID,
+    body: ReportCreate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ReportResponse:
+    post = db.execute(
+        _published_post_query(post_id).with_for_update()
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    profile = _reporter_profile(current_user, db)
+    return _save_report(
+        target=post,
+        target_column=Report.post_id,
+        target_values={"post_id": post.id},
+        body=body,
+        profile=profile,
+        db=db,
+    )
+
+
+@router.put(
+    "/{post_id}/comments/{comment_id}/report",
+    response_model=ReportResponse,
+    dependencies=[
+        Depends(
+            rate_limit_user(
+                "reports:create", settings.rate_limit_community_write_per_minute
+            )
+        )
+    ],
+)
+def report_comment(
+    post_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    body: ReportCreate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ReportResponse:
+    comment = db.execute(
+        select(Comment)
+        .join(Post, Comment.post_id == Post.id)
+        .where(
+            Comment.id == comment_id,
+            Comment.post_id == post_id,
+            Post.is_published.is_(True),
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    profile = _reporter_profile(current_user, db)
+    return _save_report(
+        target=comment,
+        target_column=Report.comment_id,
+        target_values={"comment_id": comment.id},
+        body=body,
+        profile=profile,
+        db=db,
     )
 
 

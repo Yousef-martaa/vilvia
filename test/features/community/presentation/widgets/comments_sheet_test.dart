@@ -41,6 +41,8 @@ class _StubClient extends CommunityApiClient {
   int loadCalls = 0;
   int createCalls = 0;
   String? submittedBody;
+  String? reportedCommentId;
+  String? submittedReason;
 
   @override
   Future<List<Comment>> getComments(String postId) {
@@ -60,6 +62,17 @@ class _StubClient extends CommunityApiClient {
       comment: _comment(body: body),
       commentCount: createdCount,
     );
+  }
+
+  @override
+  Future<ReportResult> reportComment({
+    required String postId,
+    required String commentId,
+    required String reason,
+  }) async {
+    reportedCommentId = commentId;
+    submittedReason = reason;
+    return const ReportResult(reported: true, reportCount: 1);
   }
 }
 
@@ -93,6 +106,7 @@ void main() {
     expect(find.text('Existing comment'), findsOneWidget);
     expect(find.text('Sign in to add a comment.'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
+    expect(find.byTooltip('Report comment'), findsNothing);
   });
 
   testWidgets('shows empty state', (tester) async {
@@ -172,5 +186,25 @@ void main() {
 
     expect(client.createCalls, 0);
     expect(find.textContaining('Please enter a comment'), findsOneWidget);
+  });
+
+  testWidgets('signed-in users can report a comment', (tester) async {
+    final client = _StubClient(load: () async => [_comment()]);
+    await tester.pumpWidget(wrap(client, signedIn: true));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Report comment'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Reason'),
+      '  Harassment  ',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Submit'));
+    await tester.pumpAndSettle();
+
+    expect(client.reportedCommentId, 'Existing comment');
+    expect(client.submittedReason, 'Harassment');
+    expect(find.text('Report submitted.'), findsOneWidget);
   });
 }

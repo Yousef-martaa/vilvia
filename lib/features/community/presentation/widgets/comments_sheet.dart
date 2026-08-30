@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:vilvia/features/community/data/comment.dart';
 import 'package:vilvia/features/community/data/community_api_client.dart';
 import 'package:vilvia/features/community/data/post.dart';
+import 'package:vilvia/features/community/presentation/widgets/report_dialog.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
 
 Future<void> showCommentsSheet({
@@ -119,6 +120,24 @@ class _CommentsSheetState extends State<CommentsSheet> {
     }
   }
 
+  Future<void> _reportComment(Comment comment) async {
+    if (!widget.isSignedIn) return;
+    final submitted = await showReportDialog(
+      context: context,
+      onSubmit: (reason) async {
+        await widget.apiClient.reportComment(
+          postId: widget.post.id,
+          commentId: comment.id,
+          reason: reason,
+        );
+      },
+    );
+    if (!mounted || !submitted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Report submitted.')));
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
@@ -178,7 +197,12 @@ class _CommentsSheetState extends State<CommentsSheet> {
     return ListView.separated(
       itemCount: comments.length,
       separatorBuilder: (_, _) => const Divider(),
-      itemBuilder: (_, index) => _CommentTile(comment: comments[index]),
+      itemBuilder: (_, index) => _CommentTile(
+        comment: comments[index],
+        onReportTap: widget.isSignedIn
+            ? () => _reportComment(comments[index])
+            : null,
+      ),
     );
   }
 
@@ -218,9 +242,10 @@ class _CommentsSheetState extends State<CommentsSheet> {
 }
 
 class _CommentTile extends StatelessWidget {
-  const _CommentTile({required this.comment});
+  const _CommentTile({required this.comment, this.onReportTap});
 
   final Comment comment;
+  final VoidCallback? onReportTap;
 
   @override
   Widget build(BuildContext context) => ListTile(
@@ -233,6 +258,13 @@ class _CommentTile extends StatelessWidget {
       ),
     ),
     title: Text(comment.authorName),
+    trailing: onReportTap == null
+        ? null
+        : IconButton(
+            onPressed: onReportTap,
+            icon: const Icon(Icons.flag_outlined),
+            tooltip: 'Report comment',
+          ),
     subtitle: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
