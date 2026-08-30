@@ -22,7 +22,11 @@ class CommunityApiClient {
   }
 
   Future<List<Post>> getPosts() async {
-    final response = await _client.get(Uri.parse('$_baseUrl/posts'));
+    final token = _accessToken?.call();
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/posts'),
+      headers: token == null ? null : {'Authorization': 'Bearer $token'},
+    );
 
     if (response.statusCode != 200) {
       throw Exception('Failed to load posts: ${response.statusCode}');
@@ -34,6 +38,31 @@ class CommunityApiClient {
     }
 
     return decoded.cast<Map<String, dynamic>>().map(Post.fromJson).toList();
+  }
+
+  Future<PostReactionResult> setPostReaction({
+    required String postId,
+    required bool reacted,
+  }) async {
+    final token = _accessToken?.call();
+    if (token == null) {
+      throw StateError(
+        'No active session; cannot call an authenticated endpoint.',
+      );
+    }
+
+    final request = http.Request(
+      reacted ? 'PUT' : 'DELETE',
+      Uri.parse('$_baseUrl/posts/$postId/reaction'),
+    )..headers['Authorization'] = 'Bearer $token';
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update reaction: ${response.statusCode}');
+    }
+    return PostReactionResult.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<Post> createPost({
@@ -104,4 +133,20 @@ class CommunityApiClient {
       jsonDecode(response.body) as Map<String, dynamic>,
     );
   }
+}
+
+class PostReactionResult {
+  const PostReactionResult({
+    required this.reacted,
+    required this.reactionCount,
+  });
+
+  final bool reacted;
+  final int reactionCount;
+
+  factory PostReactionResult.fromJson(Map<String, dynamic> json) =>
+      PostReactionResult(
+        reacted: json['reacted'] as bool,
+        reactionCount: json['reaction_count'] as int,
+      );
 }

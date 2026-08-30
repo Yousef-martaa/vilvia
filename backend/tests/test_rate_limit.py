@@ -167,6 +167,34 @@ def test_comment_creation_reuses_community_write_limit_with_separate_scope():
     assert statuses[limit] == 429
 
 
+def test_reaction_mutation_uses_its_own_community_write_scope():
+    limit = settings.rate_limit_community_write_per_minute
+    user = _override_current_user()
+    profile = _full_profile(user.id)
+    post = MagicMock()
+    post.id = uuid.uuid4()
+    post.reaction_count = 0
+    mock_db = MagicMock()
+    mock_db.execute.return_value.scalar_one_or_none.return_value = post
+
+    def get(model, _identity):
+        if model.__name__ == "Profile":
+            return profile
+        return MagicMock()
+
+    mock_db.get.side_effect = get
+    mock_db.scalar.return_value = 1
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    statuses = [
+        client.put(f"/posts/{post.id}/reaction").status_code
+        for _ in range(limit + 1)
+    ]
+
+    assert statuses[:limit] == [200] * limit
+    assert statuses[limit] == 429
+
+
 def test_admin_route_returns_429_after_exceeding_the_limit():
     limit = settings.rate_limit_admin_read_per_minute
     user = _override_current_user()

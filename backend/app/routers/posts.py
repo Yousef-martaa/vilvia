@@ -1,18 +1,24 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import AuthenticatedUser, get_current_user, get_db
+from app.api.deps import (
+    AuthenticatedUser,
+    get_current_user,
+    get_db,
+    get_optional_current_user,
+)
 from app.core.rate_limit import rate_limit_public, rate_limit_user
 from app.core.settings import settings
 from app.models.comment import Comment
 from app.models.post import Post
+from app.models.post_reaction import PostReaction
 from app.models.profile import Profile
 from app.schemas.comment import CommentCreate, CommentCreateResponse, CommentResponse
-from app.schemas.post import PostCreate, PostResponse
+from app.schemas.post import PostCreate, PostReactionResponse, PostResponse
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -24,13 +30,32 @@ router = APIRouter(prefix="/posts", tags=["posts"])
         Depends(rate_limit_public("posts:list", settings.rate_limit_public_per_minute))
     ],
 )
-def get_posts(db: Session = Depends(get_db)) -> list[PostResponse]:
+def get_posts(
+    current_user: AuthenticatedUser | None = Depends(get_optional_current_user),
+    db: Session = Depends(get_db),
+) -> list[PostResponse]:
     result = db.execute(
         select(Post)
         .where(Post.is_published.is_(True))
         .order_by(Post.created_at.desc())
     )
-    return result.scalars().all()
+    posts = result.scalars().all()
+    reacted_post_ids: set[uuid.UUID] = set()
+    if current_user is not None and posts:
+        reacted_post_ids = set(
+            db.execute(
+                select(PostReaction.post_id).where(
+                    PostReaction.profile_id == current_user.id,
+                    PostReaction.post_id.in_([post.id for post in posts]),
+                )
+            ).scalars()
+        )
+    return [
+        PostResponse.model_validate(post).model_copy(
+            update={"has_reacted": post.id in reacted_post_ids}
+        )
+        for post in posts
+    ]
 
 
 @router.post(
@@ -87,6 +112,94 @@ def create_post(
 
 def _published_post_query(post_id: uuid.UUID):
     return select(Post).where(Post.id == post_id, Post.is_published.is_(True))
+
+
+def _set_reaction(
+    *,
+    post_id: uuid.UUID,
+    reacted: bool,
+    current_user: AuthenticatedUser,
+    db: Session,
+) -> PostReactionResponse:
+    post = db.execute(
+        _published_post_query(post_id).with_for_update()
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    profile = db.get(Profile, current_user.id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A Profile is required before reacting to a post.",
+        )
+
+    reaction = db.get(PostReaction, (post.id, profile.id))
+    if reacted and reaction is None:
+        db.add(PostReaction(post_id=post.id, profile_id=profile.id))
+    elif not reacted and reaction is not None:
+        db.delete(reaction)
+
+    try:
+        db.flush()
+        post.reaction_count = db.scalar(
+            select(func.count()).select_from(PostReaction).where(
+                PostReaction.post_id == post.id
+            )
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The reaction could not be updated because of a data conflict.",
+        ) from None
+
+    return PostReactionResponse(
+        reacted=reacted, reaction_count=post.reaction_count
+    )
+
+
+@router.put(
+    "/{post_id}/reaction",
+    response_model=PostReactionResponse,
+    dependencies=[
+        Depends(
+            rate_limit_user(
+                "reactions:update", settings.rate_limit_community_write_per_minute
+            )
+        )
+    ],
+)
+def add_reaction(
+    post_id: uuid.UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PostReactionResponse:
+    return _set_reaction(
+        post_id=post_id, reacted=True, current_user=current_user, db=db
+    )
+
+
+@router.delete(
+    "/{post_id}/reaction",
+    response_model=PostReactionResponse,
+    dependencies=[
+        Depends(
+            rate_limit_user(
+                "reactions:update", settings.rate_limit_community_write_per_minute
+            )
+        )
+    ],
+)
+def remove_reaction(
+    post_id: uuid.UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PostReactionResponse:
+    return _set_reaction(
+        post_id=post_id, reacted=False, current_user=current_user, db=db
+    )
 
 
 @router.get(

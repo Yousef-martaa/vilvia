@@ -16,6 +16,7 @@ Post _post() => Post(
   body: 'Post body',
   category: 'qa',
   reactionCount: 0,
+  hasReacted: false,
   commentCount: 2,
   createdAt: DateTime.utc(2026, 8, 22),
   updatedAt: DateTime.utc(2026, 8, 22),

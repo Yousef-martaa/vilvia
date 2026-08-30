@@ -31,6 +31,12 @@ class PostResponse(BaseModel):
     body: str
     category: PostCategory
     reaction_count: int
+    has_reacted: bool = False
     comment_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class PostReactionResponse(BaseModel):
+    reacted: bool
+    reaction_count: int

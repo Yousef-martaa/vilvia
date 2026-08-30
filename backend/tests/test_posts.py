@@ -6,7 +6,14 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import AuthenticatedUser, get_current_user, get_db
+import app.api.deps as deps_module
+from app.api.deps import (
+    AuthenticatedUser,
+    get_current_user,
+    get_db,
+    get_optional_current_user,
+)
+from app.core.auth import InvalidTokenError
 from app.main import app
 from app.models.enums import UserRole
 
@@ -58,6 +65,7 @@ def test_get_posts_is_public_and_returns_feed():
     assert response.status_code == 200
     assert response.json()[0]["title"] == post.title
     assert response.json()[0]["body"] == post.body
+    assert response.json()[0]["has_reacted"] is False
 
 
 def test_get_posts_empty_returns_empty_list():
@@ -88,6 +96,40 @@ def test_get_posts_response_excludes_internal_fields():
     assert "report_count" not in data
     assert "is_published" not in data
     assert "related_resource_id" not in data
+
+
+def test_get_posts_reports_authenticated_callers_reactions():
+    reacted = make_mock_post()
+    not_reacted = make_mock_post()
+    user = AuthenticatedUser(id=uuid.uuid4(), email="parent@example.com")
+    app.dependency_overrides[get_optional_current_user] = lambda: user
+    db = MagicMock()
+    db.execute.side_effect = [
+        MagicMock(
+            scalars=MagicMock(
+                return_value=MagicMock(all=MagicMock(return_value=[reacted, not_reacted]))
+            )
+        ),
+        MagicMock(scalars=MagicMock(return_value=[reacted.id])),
+    ]
+    app.dependency_overrides[get_db] = lambda: db
+
+    data = client.get("/posts", headers={"Authorization": "Bearer valid"}).json()
+
+    assert data[0]["has_reacted"] is True
+    assert data[1]["has_reacted"] is False
+
+
+def test_get_posts_rejects_an_invalid_supplied_token(monkeypatch):
+    def reject(_token):
+        raise InvalidTokenError("invalid")
+
+    monkeypatch.setattr(deps_module, "verify_access_token", reject)
+    mock_db_returning([])
+
+    response = client.get("/posts", headers={"Authorization": "Bearer invalid"})
+
+    assert response.status_code == 401
 
 
 def authenticated_post_db(profile=True):

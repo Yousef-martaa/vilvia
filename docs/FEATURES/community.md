@@ -51,7 +51,23 @@ while the published Post row is locked, preventing lost increments from
 concurrent submissions. The response includes the new comment and authoritative
 count so the sheet and feed remain consistent immediately.
 
-Editing or deleting posts/comments, reactions, replies, reporting, moderation
+### Reactions
+
+Anyone can see each published Post's reaction count. `GET /posts` reports
+`has_reacted = false` to anonymous callers and, when a valid bearer token is
+supplied, the verified caller's actual reaction state. Supplied invalid
+credentials are rejected rather than treated as anonymous.
+
+Signed-in users with a server-side Profile add or remove their one reaction
+through idempotent `PUT /posts/{post_id}/reaction` and
+`DELETE /posts/{post_id}/reaction`. Ownership comes only from the verified
+identity. A composite primary key on `(post_id, profile_id)` prevents duplicate
+reactions. Every mutation locks the published Post, changes the normalized
+`post_reactions` row, recounts those rows, stores the exact denormalized
+`reaction_count`, and commits once. The response returns the authoritative
+reaction state and count used by the client.
+
+Editing or deleting posts/comments, reactions on comments, replies, reporting, moderation
 UI, notifications, post details, and pagination are not part of this
 implementation.
 

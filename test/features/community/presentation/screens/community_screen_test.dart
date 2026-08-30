@@ -10,14 +10,19 @@ import 'package:vilvia/features/community/data/community_api_client.dart';
 import 'package:vilvia/features/community/data/post.dart';
 import 'package:vilvia/features/community/presentation/screens/community_screen.dart';
 
-Post _fakePost({String title = 'First weeks with a newborn'}) => Post(
+Post _fakePost({
+  String title = 'First weeks with a newborn',
+  int reactionCount = 2,
+  bool hasReacted = false,
+}) => Post(
   id: '1',
   authorName: 'Alex',
   authorAvatarUrl: 'https://example.com/avatar.png',
   title: title,
   body: 'A supportive community message.',
   category: 'experiences',
-  reactionCount: 2,
+  reactionCount: reactionCount,
+  hasReacted: hasReacted,
   commentCount: 3,
   createdAt: DateTime.utc(2026, 8, 22),
   updatedAt: DateTime.utc(2026, 8, 22),
@@ -89,6 +94,36 @@ class _CommentsApiClient extends CommunityApiClient {
   );
 }
 
+class _ReactionApiClient extends CommunityApiClient {
+  _ReactionApiClient({
+    this.error,
+    this.pending,
+    this.initiallyReacted = false,
+    this.result = const PostReactionResult(reacted: true, reactionCount: 3),
+  }) : super(baseUrl: 'http://test');
+
+  final Object? error;
+  final Completer<PostReactionResult>? pending;
+  final bool initiallyReacted;
+  final PostReactionResult result;
+  bool? requestedState;
+
+  @override
+  Future<List<Post>> getPosts() async => [
+    _fakePost(hasReacted: initiallyReacted),
+  ];
+
+  @override
+  Future<PostReactionResult> setPostReaction({
+    required String postId,
+    required bool reacted,
+  }) async {
+    requestedState = reacted;
+    if (error != null) throw error!;
+    if (pending != null) return pending!.future;
+    return result;
+  }
+}
 Session _session() => Session(
   accessToken: 'token',
   tokenType: 'bearer',
@@ -137,7 +172,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('First weeks with a newborn'), findsOneWidget);
-    expect(find.text('2 reactions · 3 comments'), findsOneWidget);
+    expect(find.text('2 reactions'), findsOneWidget);
+    expect(find.text('3 comments'), findsOneWidget);
     expect(find.text('New Post'), findsNothing);
   });
 
@@ -189,7 +225,8 @@ void main() {
     expect(find.text('A supportive community message.'), findsOneWidget);
     expect(find.text('Alex'), findsOneWidget);
     expect(find.text('A'), findsOneWidget);
-    expect(find.text('2 reactions · 3 comments'), findsOneWidget);
+    expect(find.text('2 reactions'), findsOneWidget);
+    expect(find.text('3 comments'), findsOneWidget);
     expect(find.byType(Image), findsNothing);
   });
 
@@ -267,6 +304,132 @@ void main() {
     expect(find.text('Newly published post'), findsOneWidget);
   });
 
+  testWidgets('signed-out users see counts but cannot react', (tester) async {
+    final client = _ReactionApiClient();
+    await tester.pumpWidget(wrap(client));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 reactions'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, '2 reactions'), findsNothing);
+    expect(client.requestedState, isNull);
+  });
+
+  testWidgets('signed-in reaction uses and applies authoritative response', (
+    tester,
+  ) async {
+    final client = _ReactionApiClient();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CommunityScreen(
+          apiClient: client,
+          authService: _FakeAuthService(session: _session()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(TextButton, '2 reactions'));
+    await tester.pumpAndSettle();
+
+    expect(client.requestedState, isTrue);
+    expect(find.text('3 reactions'), findsOneWidget);
+    expect(find.byIcon(Icons.favorite), findsOneWidget);
+  });
+
+  testWidgets('reaction is disabled while pending', (tester) async {
+    final pending = Completer<PostReactionResult>();
+    final client = _ReactionApiClient(pending: pending);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CommunityScreen(
+          apiClient: client,
+          authService: _FakeAuthService(session: _session()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(TextButton, '2 reactions'));
+    await tester.pump();
+
+    final button = tester.widget<TextButton>(find.byType(TextButton).first);
+    expect(button.onPressed, isNull);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    pending.complete(const PostReactionResult(reacted: true, reactionCount: 3));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('selected reaction can be removed', (tester) async {
+    final client = _ReactionApiClient(
+      initiallyReacted: true,
+      result: const PostReactionResult(reacted: false, reactionCount: 1),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CommunityScreen(
+          apiClient: client,
+          authService: _FakeAuthService(session: _session()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.favorite), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, '2 reactions'));
+    await tester.pumpAndSettle();
+
+    expect(client.requestedState, isFalse);
+    expect(find.text('1 reaction'), findsOneWidget);
+    expect(find.byIcon(Icons.favorite_border), findsOneWidget);
+  });
+
+  testWidgets('failed reaction preserves state and shows an error', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CommunityScreen(
+          apiClient: _ReactionApiClient(error: Exception('network')),
+          authService: _FakeAuthService(session: _session()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(TextButton, '2 reactions'));
+    await tester.pump();
+
+    expect(find.text('2 reactions'), findsOneWidget);
+    expect(find.byIcon(Icons.favorite_border), findsOneWidget);
+    expect(find.text('Could not update reaction.'), findsOneWidget);
+  });
+
+  testWidgets('auth-state changes update reaction availability', (
+    tester,
+  ) async {
+    final auth = _FakeAuthService();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CommunityScreen(
+          apiClient: _ReactionApiClient(),
+          authService: auth,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, '2 reactions'), findsNothing);
+
+    auth.emit(_session());
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, '2 reactions'), findsOneWidget);
+
+    auth.emit(null);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, '2 reactions'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await auth.close();
+  });
+
   testWidgets('comment creation updates the feed count from the server', (
     tester,
   ) async {
@@ -280,7 +443,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('2 reactions · 3 comments'));
+    await tester.tap(find.text('3 comments'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.widgetWithText(TextField, 'Add a comment'),
@@ -291,6 +454,7 @@ void main() {
     await tester.tap(find.byTooltip('Close comments'));
     await tester.pumpAndSettle();
 
-    expect(find.text('2 reactions · 4 comments'), findsOneWidget);
+    expect(find.text('2 reactions'), findsOneWidget);
+    expect(find.text('4 comments'), findsOneWidget);
   });
 }

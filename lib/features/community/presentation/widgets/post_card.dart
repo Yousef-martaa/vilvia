@@ -6,9 +6,19 @@ import 'package:vilvia/theme/vilvia_colors.dart';
 import 'package:vilvia/widgets/tag_chip.dart';
 
 class PostCard extends StatelessWidget {
-  const PostCard({super.key, required this.post, this.onCommentsTap});
+  const PostCard({
+    super.key,
+    required this.post,
+    required this.isSignedIn,
+    required this.isReactionPending,
+    this.onReactionTap,
+    this.onCommentsTap,
+  });
 
   final Post post;
+  final bool isSignedIn;
+  final bool isReactionPending;
+  final VoidCallback? onReactionTap;
   final VoidCallback? onCommentsTap;
 
   @override
@@ -73,15 +83,52 @@ class PostCard extends StatelessWidget {
             style: textTheme.bodyMedium?.copyWith(color: VilviaColors.gray),
           ),
           const SizedBox(height: 12),
-          InkWell(
-            onTap: onCommentsTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                '${post.reactionCount} reactions · ${post.commentCount} comments',
-                style: textTheme.bodySmall?.copyWith(color: VilviaColors.gray),
+          Row(
+            children: [
+              Expanded(
+                child: isSignedIn
+                    ? TextButton.icon(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                        ),
+                        onPressed: isReactionPending ? null : onReactionTap,
+                        icon: isReactionPending
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Icon(
+                                post.hasReacted
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
+                              ),
+                        label: Text(_reactionLabel(post.reactionCount)),
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.favorite_border, size: 18),
+                            const SizedBox(width: 6),
+                            Text(_reactionLabel(post.reactionCount)),
+                          ],
+                        ),
+                      ),
               ),
-            ),
+              Expanded(
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                  onPressed: onCommentsTap,
+                  icon: const Icon(Icons.comment_outlined),
+                  label: Text('${post.commentCount} comments'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -93,6 +140,8 @@ String _authorInitial(String name) {
   final trimmed = name.trim();
   return trimmed.isEmpty ? '?' : trimmed.characters.first.toUpperCase();
 }
+
+String _reactionLabel(int count) => '$count reaction${count == 1 ? '' : 's'}';
 
 String _categoryLabel(String category) {
   if (category == 'qa') return 'Q&A';

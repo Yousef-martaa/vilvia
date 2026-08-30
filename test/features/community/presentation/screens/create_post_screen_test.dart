@@ -33,6 +33,7 @@ class _SpyClient extends CommunityApiClient {
       body: body,
       category: category,
       reactionCount: 0,
+      hasReacted: false,
       commentCount: 0,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),

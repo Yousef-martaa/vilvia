@@ -29,6 +29,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   List<Post>? _posts;
   bool _isLoading = true;
   bool _isSignedIn = false;
+  final Set<String> _pendingReactionPostIds = {};
   String? _error;
 
   @override
@@ -45,7 +46,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
       _isSignedIn = _authService.currentSession != null;
       _authSubscription = _authService.onAuthStateChange.listen((state) {
         if (!mounted) return;
-        setState(() => _isSignedIn = state.session != null);
+        setState(() {
+          _isSignedIn = state.session != null;
+          _pendingReactionPostIds.clear();
+        });
+        _loadPosts();
       });
     } catch (_) {
       // Auth is not initialized in some test/dev environments.
@@ -87,6 +92,39 @@ class _CommunityScreenState extends State<CommunityScreen> {
         });
       },
     );
+  }
+
+  Future<void> _setReaction(Post post) async {
+    if (!_isSignedIn || _pendingReactionPostIds.contains(post.id)) return;
+    setState(() => _pendingReactionPostIds.add(post.id));
+    try {
+      final result = await _apiClient.setPostReaction(
+        postId: post.id,
+        reacted: !post.hasReacted,
+      );
+      if (!mounted) return;
+      setState(() {
+        _posts = _posts
+            ?.map(
+              (item) => item.id == post.id
+                  ? item.copyWith(
+                      reactionCount: result.reactionCount,
+                      hasReacted: result.reacted,
+                    )
+                  : item,
+            )
+            .toList();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update reaction.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _pendingReactionPostIds.remove(post.id));
+      }
+    }
   }
 
   @override
@@ -212,6 +250,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
       separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (_, index) => PostCard(
         post: posts[index],
+        isSignedIn: _isSignedIn,
+        isReactionPending: _pendingReactionPostIds.contains(posts[index].id),
+        onReactionTap: () => _setReaction(posts[index]),
         onCommentsTap: () => _openComments(posts[index]),
       ),
     );
