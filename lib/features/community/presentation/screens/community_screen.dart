@@ -161,11 +161,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openCreatePost,
-        icon: const Icon(Icons.add),
-        label: const Text('New Post'),
-      ),
+      floatingActionButton: _isSignedIn
+          ? FloatingActionButton.extended(
+              onPressed: _openCreatePost,
+              icon: const Icon(Icons.add),
+              label: const Text('New Post'),
+            )
+          : null,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
