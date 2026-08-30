@@ -253,8 +253,8 @@ reports
 Example fields:
 
 ```text
-targetType: enum
-targetId: string
+postId: string | null
+commentId: string | null
 reportedBy: string
 reason: string
 status: enum
@@ -264,11 +264,18 @@ updatedAt: timestamp
 
 Notes:
 
-- `targetType` identifies what was reported, such as `post` or `comment`.
-- `targetId` stores the ID of the reported item.
-- `reportedBy` stores the user ID of the person who submitted the report.
+- Exactly one of `postId` or `commentId` is required by a database check.
+- Both targets use explicit foreign keys with `ON DELETE CASCADE`, so reports
+  cannot outlive their content.
+- `reportedBy` references `profiles.id` with `ON DELETE RESTRICT`.
+- Unique reporter/target constraints allow one report per Profile per Post or
+  Comment. A repeated API request updates the existing reason idempotently.
 - `status` may include values such as `pending`, `reviewed`, or `dismissed`.
+- Post and Comment `reportCount` values are internal denormalized caches that
+  are recalculated from Report rows transactionally and are not public API
+  fields.
 - Keeping reports in a separate table makes future moderation tools easier to build.
+- Report submission is implemented; moderation review and action are not.
 
 ---
 

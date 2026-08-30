@@ -9,6 +9,7 @@ import 'package:vilvia/features/community/data/post.dart';
 import 'package:vilvia/features/community/presentation/screens/create_post_screen.dart';
 import 'package:vilvia/features/community/presentation/widgets/post_card.dart';
 import 'package:vilvia/features/community/presentation/widgets/comments_sheet.dart';
+import 'package:vilvia/features/community/presentation/widgets/report_dialog.dart';
 import 'package:vilvia/theme/vilvia_colors.dart';
 
 class CommunityScreen extends StatefulWidget {
@@ -125,6 +126,20 @@ class _CommunityScreenState extends State<CommunityScreen> {
         setState(() => _pendingReactionPostIds.remove(post.id));
       }
     }
+  }
+
+  Future<void> _reportPost(Post post) async {
+    if (!_isSignedIn) return;
+    final submitted = await showReportDialog(
+      context: context,
+      onSubmit: (reason) async {
+        await _apiClient.reportPost(postId: post.id, reason: reason);
+      },
+    );
+    if (!mounted || !submitted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Report submitted.')));
   }
 
   @override
@@ -252,6 +267,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         post: posts[index],
         isSignedIn: _isSignedIn,
         isReactionPending: _pendingReactionPostIds.contains(posts[index].id),
+        onReportTap: () => _reportPost(posts[index]),
         onReactionTap: () => _setReaction(posts[index]),
         onCommentsTap: () => _openComments(posts[index]),
       ),

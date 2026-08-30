@@ -67,7 +67,27 @@ reactions. Every mutation locks the published Post, changes the normalized
 `reaction_count`, and commits once. The response returns the authoritative
 reaction state and count used by the client.
 
-Editing or deleting posts/comments, reactions on comments, replies, reporting, moderation
+### Reporting
+
+Signed-in users with a server-side Profile can report a published Post through
+`PUT /posts/{post_id}/report` or a Comment belonging to a published Post through
+`PUT /posts/{post_id}/comments/{comment_id}/report`. The client supplies only a
+trimmed reason of 1-500 characters; reporter identity, pending status, target
+ownership, and internal counters are assigned server-side. Signed-out users can
+continue browsing but are not shown reporting controls.
+
+Reports reference either a Post or Comment with explicit foreign keys, and a
+database check requires exactly one target. A Profile may report a given target
+only once. Repeating the same `PUT` updates that Report's reason without creating
+a duplicate or changing its status. Each mutation locks the target, recounts
+the normalized Report rows, and stores the exact internal `report_count` in one
+transaction. Report counts are not exposed in public feed or comment schemas.
+
+Issue #102 provides report intake only. Moderator queues, review actions,
+content removal, automatic or AI moderation, blocking, appeals, notifications,
+and event reporting remain intentionally unimplemented.
+
+Editing or deleting posts/comments, reactions on comments, replies, moderation
 UI, notifications, post details, and pagination are not part of this
 implementation.
 

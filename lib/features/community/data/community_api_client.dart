@@ -133,6 +133,47 @@ class CommunityApiClient {
       jsonDecode(response.body) as Map<String, dynamic>,
     );
   }
+
+  Future<ReportResult> reportPost({
+    required String postId,
+    required String reason,
+  }) => _submitReport(path: '/posts/$postId/report', reason: reason);
+
+  Future<ReportResult> reportComment({
+    required String postId,
+    required String commentId,
+    required String reason,
+  }) => _submitReport(
+    path: '/posts/$postId/comments/$commentId/report',
+    reason: reason,
+  );
+
+  Future<ReportResult> _submitReport({
+    required String path,
+    required String reason,
+  }) async {
+    final token = _accessToken?.call();
+    if (token == null) {
+      throw StateError(
+        'No active session; cannot call an authenticated endpoint.',
+      );
+    }
+
+    final response = await _client.put(
+      Uri.parse('$_baseUrl$path'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'reason': reason}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to submit report: ${response.statusCode}');
+    }
+    return ReportResult.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
 }
 
 class PostReactionResult {
@@ -149,4 +190,16 @@ class PostReactionResult {
         reacted: json['reacted'] as bool,
         reactionCount: json['reaction_count'] as int,
       );
+}
+
+class ReportResult {
+  const ReportResult({required this.reported, required this.reportCount});
+
+  final bool reported;
+  final int reportCount;
+
+  factory ReportResult.fromJson(Map<String, dynamic> json) => ReportResult(
+    reported: json['reported'] as bool,
+    reportCount: json['report_count'] as int,
+  );
 }

@@ -195,6 +195,77 @@ def test_reaction_mutation_uses_its_own_community_write_scope():
     assert statuses[limit] == 429
 
 
+def test_post_and_comment_reports_share_a_community_write_scope():
+    limit = settings.rate_limit_community_write_per_minute
+    user = _override_current_user()
+    profile = _full_profile(user.id)
+    target = MagicMock()
+    target.id = uuid.uuid4()
+    target.post_id = uuid.uuid4()
+    target.report_count = 0
+    result = MagicMock()
+    result.scalar_one_or_none.side_effect = [target, None] * limit
+    mock_db = MagicMock()
+    mock_db.execute.return_value = result
+    mock_db.get.return_value = profile
+    mock_db.scalar.return_value = 1
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    statuses = []
+    for index in range(limit + 1):
+        if index % 2 == 0:
+            response = client.put(
+                f"/posts/{target.id}/report", json={"reason": "Reason"}
+            )
+        else:
+            response = client.put(
+                f"/posts/{target.post_id}/comments/{target.id}/report",
+                json={"reason": "Reason"},
+            )
+        statuses.append(response.status_code)
+
+    assert statuses[:limit] == [200] * limit
+    assert statuses[limit] == 429
+
+
+def test_reporting_quota_is_separate_from_post_creation():
+    limit = settings.rate_limit_community_write_per_minute
+    user = _override_current_user()
+    profile = _full_profile(user.id)
+    target = MagicMock()
+    target.id = uuid.uuid4()
+    target.report_count = 0
+    result = MagicMock()
+    result.scalar_one_or_none.side_effect = [target, None] * limit
+    mock_db = MagicMock()
+    mock_db.execute.return_value = result
+    mock_db.get.return_value = profile
+    mock_db.scalar.return_value = 1
+
+    def refresh(post):
+        post.id = uuid.uuid4()
+        post.reaction_count = 0
+        post.comment_count = 0
+        post.created_at = datetime.now(timezone.utc)
+        post.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = refresh
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    assert client.post(
+        "/posts",
+        json={"title": "Title", "body": "Body", "category": "qa"},
+    ).status_code == 201
+    statuses = [
+        client.put(
+            f"/posts/{target.id}/report", json={"reason": "Reason"}
+        ).status_code
+        for _ in range(limit)
+    ]
+
+    assert statuses == [200] * limit
+
+
 def test_admin_route_returns_429_after_exceeding_the_limit():
     limit = settings.rate_limit_admin_read_per_minute
     user = _override_current_user()

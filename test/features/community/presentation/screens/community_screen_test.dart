@@ -124,6 +124,24 @@ class _ReactionApiClient extends CommunityApiClient {
     return result;
   }
 }
+
+class _ReportApiClient extends CommunityApiClient {
+  _ReportApiClient() : super(baseUrl: 'http://test');
+  String? submittedReason;
+
+  @override
+  Future<List<Post>> getPosts() async => [_fakePost()];
+
+  @override
+  Future<ReportResult> reportPost({
+    required String postId,
+    required String reason,
+  }) async {
+    submittedReason = reason;
+    return const ReportResult(reported: true, reportCount: 1);
+  }
+}
+
 Session _session() => Session(
   accessToken: 'token',
   tokenType: 'bearer',
@@ -175,6 +193,7 @@ void main() {
     expect(find.text('2 reactions'), findsOneWidget);
     expect(find.text('3 comments'), findsOneWidget);
     expect(find.text('New Post'), findsNothing);
+    expect(find.byTooltip('Report post'), findsNothing);
   });
 
   testWidgets('signed-in users see New Post', (tester) async {
@@ -189,6 +208,28 @@ void main() {
     expect(find.text('New Post'), findsOneWidget);
   });
 
+  testWidgets('signed-in users can report a post', (tester) async {
+    final client = _ReportApiClient();
+    await tester.pumpWidget(
+      wrap(client, authService: _FakeAuthService(session: _session())),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Report post'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Reason'),
+      '  Spam  ',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Submit'));
+    await tester.pumpAndSettle();
+
+    expect(client.submittedReason, 'Spam');
+    expect(find.text('Report submitted.'), findsOneWidget);
+    expect(find.text('Report content'), findsNothing);
+  });
+
   testWidgets('auth-state changes update New Post visibility', (tester) async {
     final authService = _FakeAuthService();
     await tester.pumpWidget(
@@ -200,10 +241,30 @@ void main() {
     authService.emit(_session());
     await tester.pumpAndSettle();
     expect(find.text('New Post'), findsOneWidget);
+    expect(find.byTooltip('Report post'), findsNothing);
 
     authService.emit(null);
     await tester.pumpAndSettle();
     expect(find.text('New Post'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await authService.close();
+  });
+
+  testWidgets('auth-state changes update post reporting availability', (
+    tester,
+  ) async {
+    final authService = _FakeAuthService();
+    await tester.pumpWidget(wrap(_ReportApiClient(), authService: authService));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Report post'), findsNothing);
+
+    authService.emit(_session());
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Report post'), findsOneWidget);
+
+    authService.emit(null);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Report post'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     await authService.close();
   });
