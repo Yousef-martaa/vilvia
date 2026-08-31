@@ -275,7 +275,11 @@ Notes:
   are recalculated from Report rows transactionally and are not public API
   fields.
 - Keeping reports in a separate table makes future moderation tools easier to build.
-- Report submission is implemented; moderation review and action are not.
+- Report submission and admin triage are implemented. `targetKind` is derived
+  by the API from the existing mutually exclusive Post/Comment foreign keys;
+  it is not stored as a polymorphic discriminator. Reviewed and dismissed are
+  terminal triage states. Triage changes only the Report status and never the
+  target content. No content snapshots or reporter/Profile details are exposed.
 
 ---
 

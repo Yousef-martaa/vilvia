@@ -10,6 +10,7 @@ same process-wide storage instance.
 
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -21,7 +22,7 @@ from app.core.rate_limit import reset_rate_limit_storage
 from app.core.settings import settings
 from app.main import app
 from app.models.comment import Comment
-from app.models.enums import UserRole
+from app.models.enums import ReportStatus, UserRole
 
 client = TestClient(app)
 
@@ -63,6 +64,14 @@ def _mock_db_for_admin_listing(profile, events=None):
     mock_db = MagicMock()
     mock_db.get.return_value = profile
     mock_db.execute.return_value.scalars.return_value.all.return_value = events or []
+    app.dependency_overrides[get_db] = lambda: mock_db
+    return mock_db
+
+
+def _mock_db_for_report_listing(profile, rows=None):
+    mock_db = MagicMock()
+    mock_db.get.return_value = profile
+    mock_db.execute.return_value.all.return_value = rows or []
     app.dependency_overrides[get_db] = lambda: mock_db
     return mock_db
 
@@ -275,6 +284,73 @@ def test_admin_route_returns_429_after_exceeding_the_limit():
 
     assert statuses[:limit] == [200] * limit
     assert statuses[limit] == 429
+
+
+def test_report_admin_read_has_its_own_scope():
+    limit = settings.rate_limit_admin_read_per_minute
+    user = _override_current_user()
+    db = _mock_db_for_report_listing(
+        _full_profile(user.id, role=UserRole.admin), []
+    )
+
+    statuses = [client.get("/reports").status_code for _ in range(limit + 1)]
+
+    assert statuses[:limit] == [200] * limit
+    assert statuses[limit] == 429
+    assert client.get("/events/drafts").status_code == 200
+    assert db.execute.return_value.all.call_count == limit
+
+
+def test_report_admin_write_has_its_own_scope():
+    limit = settings.rate_limit_admin_write_per_minute
+    user = _override_current_user()
+    now = datetime.now(timezone.utc)
+    target_id = uuid.uuid4()
+    report = SimpleNamespace(
+        id=uuid.uuid4(),
+        post_id=target_id,
+        comment_id=None,
+        reason="Reason",
+        status=ReportStatus.reviewed,
+        created_at=now,
+        updated_at=now,
+    )
+    post = SimpleNamespace(id=target_id, title="Title", body="Body")
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = report
+    result.one.return_value = (report, post, None, None)
+    db = MagicMock()
+    db.get.return_value = _full_profile(user.id, role=UserRole.admin)
+    db.execute.return_value = result
+    app.dependency_overrides[get_db] = lambda: db
+
+    statuses = [
+        client.put(
+            f"/reports/{report.id}/status", json={"status": "reviewed"}
+        ).status_code
+        for _ in range(limit + 1)
+    ]
+
+    assert statuses[:limit] == [200] * limit
+    assert statuses[limit] == 429
+    assert db.commit.call_count == 0
+
+    def refresh(event):
+        event.id = uuid.uuid4()
+        event.created_at = now
+        event.updated_at = now
+
+    db.refresh.side_effect = refresh
+    response = client.post(
+        "/events",
+        json={
+            "title": "Admin event",
+            "description": "Description",
+            "location": "Community Centre",
+            "starts_at": datetime(2030, 1, 1, tzinfo=timezone.utc).isoformat(),
+        },
+    )
+    assert response.status_code == 201
 
 
 # --- /health is exempt ---------------------------------------------------

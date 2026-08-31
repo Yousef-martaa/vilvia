@@ -1,0 +1,374 @@
+import uuid
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.api.deps import AuthenticatedUser, get_current_user, get_db
+from app.main import app
+from app.models.enums import ReportStatus, UserRole
+from app.routers.reports import MAX_REPORT_OFFSET
+
+client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clear_overrides():
+    yield
+    app.dependency_overrides.clear()
+
+
+def _user_and_profile(role=UserRole.admin, *, profile=True):
+    user = AuthenticatedUser(id=uuid.uuid4(), email="admin@example.com")
+    app.dependency_overrides[get_current_user] = lambda: user
+    resolved = None
+    if profile:
+        resolved = SimpleNamespace(id=user.id, role=role)
+    return user, resolved
+
+
+def _report(*, kind="post", status=ReportStatus.pending, created_at=None):
+    target_id = uuid.uuid4()
+    now = created_at or datetime.now(timezone.utc)
+    report = SimpleNamespace(
+        id=uuid.uuid4(),
+        post_id=target_id if kind == "post" else None,
+        comment_id=target_id if kind == "comment" else None,
+        reason="Unsafe medical advice",
+        status=status,
+        created_at=now,
+        updated_at=now,
+    )
+    post = (
+        SimpleNamespace(id=target_id, title="Post title", body="Post body")
+        if kind == "post"
+        else None
+    )
+    comment = (
+        SimpleNamespace(id=target_id, body="Comment body", post_id=None)
+        if kind == "comment"
+        else None
+    )
+    parent = (
+        SimpleNamespace(id=uuid.uuid4(), title="Parent post")
+        if kind == "comment"
+        else None
+    )
+    if comment is not None:
+        comment.post_id = parent.id
+    return report, post, comment, parent
+
+
+def _list_db(profile, rows):
+    db = MagicMock()
+    db.get.return_value = profile
+    db.execute.return_value.all.return_value = rows
+    app.dependency_overrides[get_db] = lambda: db
+    return db
+
+
+def _update_db(profile, report, context_row):
+    db = MagicMock()
+    db.get.return_value = profile
+    locked = MagicMock()
+    locked.scalar_one_or_none.return_value = report
+    context = MagicMock()
+    context.one.return_value = context_row
+    db.execute.side_effect = [locked, context]
+    app.dependency_overrides[get_db] = lambda: db
+    return db
+
+
+def test_get_reports_requires_authentication():
+    assert client.get("/reports").status_code == 401
+
+
+@pytest.mark.parametrize("profile", [None, SimpleNamespace(role=UserRole.parent)])
+def test_get_reports_requires_admin_profile(profile):
+    user, _ = _user_and_profile()
+    if profile is not None:
+        profile.id = user.id
+    _list_db(profile, [])
+
+    assert client.get("/reports").status_code == 403
+
+
+def test_get_reports_defaults_to_pending_and_has_deterministic_order():
+    _, profile = _user_and_profile()
+    db = _list_db(profile, [])
+
+    assert client.get("/reports").json() == []
+
+    sql = str(db.execute.call_args.args[0]).lower()
+    assert "reports.status =" in sql
+    assert "order by reports.created_at desc, reports.id desc" in sql
+    assert "limit" in sql and "offset" in sql
+
+
+@pytest.mark.parametrize("value", ["pending", "reviewed", "dismissed"])
+def test_get_reports_accepts_each_status_filter(value):
+    _, profile = _user_and_profile()
+    _list_db(profile, [])
+
+    assert client.get("/reports", params={"status": value}).status_code == 200
+
+
+def test_get_reports_rejects_unknown_status_and_unbounded_pagination():
+    _, profile = _user_and_profile()
+    _list_db(profile, [])
+
+    assert client.get("/reports", params={"status": "open"}).status_code == 422
+    assert client.get("/reports", params={"limit": 101}).status_code == 422
+    assert client.get("/reports", params={"limit": 0}).status_code == 422
+    assert client.get("/reports", params={"offset": -1}).status_code == 422
+
+
+def test_get_reports_accepts_maximum_offset_and_rejects_one_above():
+    _, profile = _user_and_profile()
+    _list_db(profile, [])
+
+    assert (
+        client.get("/reports", params={"offset": MAX_REPORT_OFFSET}).status_code
+        == 200
+    )
+    assert (
+        client.get(
+            "/reports", params={"offset": MAX_REPORT_OFFSET + 1}
+        ).status_code
+        == 422
+    )
+
+
+def test_get_reports_serializes_safe_post_context_only():
+    _, profile = _user_and_profile()
+    _list_db(profile, [_report(kind="post")])
+
+    data = client.get("/reports").json()[0]
+
+    assert data["target_kind"] == "post"
+    assert data["target_id"] == data["post"]["id"]
+    assert data["post"]["title"] == "Post title"
+    assert data["comment"] is None
+    for private_field in ("reported_by", "reporter", "email", "report_count"):
+        assert private_field not in data
+
+
+def test_get_reports_serializes_comment_and_parent_post_context():
+    _, profile = _user_and_profile()
+    row = _report(kind="comment")
+    _list_db(profile, [row])
+
+    data = client.get("/reports").json()[0]
+
+    assert data["target_kind"] == "comment"
+    assert data["comment"] == {
+        "id": str(row[2].id),
+        "body": "Comment body",
+        "post_id": str(row[3].id),
+        "post_title": "Parent post",
+    }
+    assert data["post"] is None
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        lambda: (_report(kind="post")[0], None, None, None),
+        lambda: (_report(kind="comment")[0], None, None, None),
+        lambda: (lambda item: (item[0], None, item[2], None))(
+            _report(kind="comment")
+        ),
+    ],
+    ids=["missing-post", "missing-comment", "missing-parent-post"],
+)
+def test_get_reports_omits_invalid_target_context_without_failing_queue(row):
+    _, profile = _user_and_profile()
+    _list_db(profile, [row()])
+
+    response = client.get("/reports")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.parametrize("resulting", [ReportStatus.reviewed, ReportStatus.dismissed])
+def test_pending_report_can_transition_to_terminal_status(resulting):
+    _, profile = _user_and_profile()
+    row = _report(status=ReportStatus.pending)
+    db = _update_db(profile, row[0], row)
+
+    response = client.put(
+        f"/reports/{row[0].id}/status", json={"status": resulting.value}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == resulting.value
+    assert row[0].status == resulting
+    db.commit.assert_called_once_with()
+
+
+@pytest.mark.parametrize("terminal", [ReportStatus.reviewed, ReportStatus.dismissed])
+def test_repeating_terminal_status_is_idempotent_without_mutation(terminal):
+    _, profile = _user_and_profile()
+    row = _report(status=terminal)
+    db = _update_db(profile, row[0], row)
+
+    response = client.put(
+        f"/reports/{row[0].id}/status", json={"status": terminal.value}
+    )
+
+    assert response.status_code == 200
+    db.commit.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("current", "requested"),
+    [
+        (ReportStatus.pending, ReportStatus.pending),
+        (ReportStatus.reviewed, ReportStatus.dismissed),
+        (ReportStatus.reviewed, ReportStatus.pending),
+        (ReportStatus.dismissed, ReportStatus.reviewed),
+        (ReportStatus.dismissed, ReportStatus.pending),
+    ],
+)
+def test_other_status_transitions_return_409_without_commit(current, requested):
+    _, profile = _user_and_profile()
+    row = _report(status=current)
+    db = _update_db(profile, row[0], row)
+
+    response = client.put(
+        f"/reports/{row[0].id}/status", json={"status": requested.value}
+    )
+
+    assert response.status_code == 409
+    db.commit.assert_not_called()
+
+
+def test_update_missing_report_returns_404():
+    _, profile = _user_and_profile()
+    db = MagicMock()
+    db.get.return_value = profile
+    db.execute.return_value.scalar_one_or_none.return_value = None
+    app.dependency_overrides[get_db] = lambda: db
+
+    response = client.put(
+        f"/reports/{uuid.uuid4()}/status", json={"status": "reviewed"}
+    )
+
+    assert response.status_code == 404
+    db.commit.assert_not_called()
+
+
+def test_update_status_requires_authentication():
+    response = client.put(
+        f"/reports/{uuid.uuid4()}/status", json={"status": "reviewed"}
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("profile", [None, SimpleNamespace(role=UserRole.parent)])
+def test_update_status_requires_admin_profile(profile):
+    user, _ = _user_and_profile()
+    if profile is not None:
+        profile.id = user.id
+    _list_db(profile, [])
+
+    response = client.put(
+        f"/reports/{uuid.uuid4()}/status", json={"status": "reviewed"}
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "invalid_row",
+    [
+        lambda row: (row[0], None, None, None),
+        lambda row: (row[0], None, None, row[3]),
+        lambda row: (row[0], None, row[2], None),
+    ],
+    ids=["missing-target", "missing-comment", "missing-parent-post"],
+)
+def test_update_does_not_mutate_or_commit_invalid_target_context(invalid_row):
+    _, profile = _user_and_profile()
+    row = _report(kind="comment")
+    db = _update_db(profile, row[0], invalid_row(row))
+
+    response = client.put(
+        f"/reports/{row[0].id}/status", json={"status": "reviewed"}
+    )
+
+    assert response.status_code == 409
+    assert row[0].status == ReportStatus.pending
+    db.flush.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_update_does_not_mutate_or_commit_when_post_target_is_missing():
+    _, profile = _user_and_profile()
+    row = _report(kind="post")
+    db = _update_db(profile, row[0], (row[0], None, None, None))
+
+    response = client.put(
+        f"/reports/{row[0].id}/status", json={"status": "reviewed"}
+    )
+
+    assert response.status_code == 409
+    assert row[0].status == ReportStatus.pending
+    db.commit.assert_not_called()
+
+
+def test_update_rejects_mutually_inconsistent_target_state_before_mutation():
+    _, profile = _user_and_profile()
+    row = _report(kind="post")
+    row[0].comment_id = uuid.uuid4()
+    db = _update_db(profile, row[0], row)
+
+    response = client.put(
+        f"/reports/{row[0].id}/status", json={"status": "dismissed"}
+    )
+
+    assert response.status_code == 409
+    assert row[0].status == ReportStatus.pending
+    db.commit.assert_not_called()
+
+
+def test_update_rolls_back_when_commit_fails():
+    _, profile = _user_and_profile()
+    row = _report(status=ReportStatus.pending)
+    db = _update_db(profile, row[0], row)
+    db.commit.side_effect = SQLAlchemyError("commit failed")
+
+    with pytest.raises(SQLAlchemyError, match="commit failed"):
+        client.put(
+            f"/reports/{row[0].id}/status", json={"status": "reviewed"}
+        )
+
+    db.flush.assert_called_once_with()
+    db.rollback.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{}, {"status": "unknown"}, {"status": "reviewed", "reported_by": "x"}],
+)
+def test_update_status_validates_body(payload):
+    _, profile = _user_and_profile()
+    _list_db(profile, [])
+
+    assert client.put(f"/reports/{uuid.uuid4()}/status", json=payload).status_code == 422
+
+
+def test_status_decision_query_requests_row_lock():
+    _, profile = _user_and_profile()
+    row = _report(status=ReportStatus.reviewed)
+    db = _update_db(profile, row[0], row)
+
+    client.put(f"/reports/{row[0].id}/status", json={"status": "reviewed"})
+
+    sql = str(db.execute.call_args_list[0].args[0]).lower()
+    assert "for update" in sql
