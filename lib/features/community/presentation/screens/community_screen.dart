@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:vilvia/features/auth/data/auth_service.dart';
+import 'package:vilvia/features/auth/data/profile.dart';
+import 'package:vilvia/features/auth/data/profile_api_client.dart';
 import 'package:vilvia/features/community/data/community_api_client.dart';
 import 'package:vilvia/features/community/data/post.dart';
+import 'package:vilvia/features/community/presentation/screens/admin_reports_screen.dart';
 import 'package:vilvia/features/community/presentation/screens/create_post_screen.dart';
 import 'package:vilvia/features/community/presentation/widgets/post_card.dart';
 import 'package:vilvia/features/community/presentation/widgets/comments_sheet.dart';
@@ -13,10 +16,16 @@ import 'package:vilvia/features/community/presentation/widgets/report_dialog.dar
 import 'package:vilvia/theme/vilvia_colors.dart';
 
 class CommunityScreen extends StatefulWidget {
-  const CommunityScreen({super.key, this.apiClient, this.authService});
+  const CommunityScreen({
+    super.key,
+    this.apiClient,
+    this.authService,
+    this.profileApiClient,
+  });
 
   final CommunityApiClient? apiClient;
   final AuthService? authService;
+  final ProfileApiClient? profileApiClient;
 
   @override
   State<CommunityScreen> createState() => _CommunityScreenState();
@@ -26,10 +35,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
   late final CommunityApiClient _apiClient;
   late final bool _ownsClient;
   late final AuthService _authService;
+  late final ProfileApiClient _profileApiClient;
+  late final bool _ownsProfileClient;
   StreamSubscription<AuthState>? _authSubscription;
   List<Post>? _posts;
   bool _isLoading = true;
   bool _isSignedIn = false;
+  bool _isAdmin = false;
+  int _adminCheckGeneration = 0;
   final Set<String> _pendingReactionPostIds = {};
   String? _error;
 
@@ -37,6 +50,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
   void initState() {
     super.initState();
     _authService = widget.authService ?? AuthService();
+    _ownsProfileClient = widget.profileApiClient == null;
+    _profileApiClient =
+        widget.profileApiClient ??
+        ProfileApiClient(
+          accessToken: () => _authService.currentSession?.accessToken,
+        );
     _ownsClient = widget.apiClient == null;
     _apiClient =
         widget.apiClient ??
@@ -45,12 +64,15 @@ class _CommunityScreenState extends State<CommunityScreen> {
         );
     try {
       _isSignedIn = _authService.currentSession != null;
+      _checkAdminStatus();
       _authSubscription = _authService.onAuthStateChange.listen((state) {
         if (!mounted) return;
         setState(() {
           _isSignedIn = state.session != null;
+          _isAdmin = false;
           _pendingReactionPostIds.clear();
         });
+        _checkAdminStatus();
         _loadPosts();
       });
     } catch (_) {
@@ -66,6 +88,54 @@ class _CommunityScreenState extends State<CommunityScreen> {
       ),
     );
     if (created == true && mounted) await _loadPosts();
+  }
+
+  void _openReports() {
+    String? adminUserId;
+    try {
+      adminUserId = _authService.currentSession?.user.id;
+    } catch (_) {
+      adminUserId = null;
+    }
+    if (!_isAdmin || adminUserId == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AdminReportsScreen(
+          apiClient: _apiClient,
+          authService: _authService,
+          adminUserId: adminUserId!,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _checkAdminStatus() async {
+    final generation = ++_adminCheckGeneration;
+    String? userId;
+    try {
+      userId = _authService.currentSession?.user.id;
+    } catch (_) {
+      userId = null;
+    }
+    if (mounted) setState(() => _isAdmin = false);
+    if (userId == null) return;
+
+    var isAdmin = false;
+    try {
+      final profile = await _profileApiClient.getMe();
+      isAdmin = profile.id == userId && profile.role == UserRole.admin;
+    } catch (_) {
+      isAdmin = false;
+    }
+    if (!mounted || generation != _adminCheckGeneration) return;
+    String? currentUserId;
+    try {
+      currentUserId = _authService.currentSession?.user.id;
+    } catch (_) {
+      currentUserId = null;
+    }
+    if (currentUserId != userId) return;
+    setState(() => _isAdmin = isAdmin);
   }
 
   Future<void> _openComments(Post post) async {
@@ -146,6 +216,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   void dispose() {
     _authSubscription?.cancel();
     if (_ownsClient) _apiClient.close();
+    if (_ownsProfileClient) _profileApiClient.close();
     super.dispose();
   }
 
@@ -216,6 +287,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           ],
                         ),
                       ),
+                      if (_isAdmin)
+                        TextButton.icon(
+                          onPressed: _openReports,
+                          icon: const Icon(Icons.flag_outlined),
+                          label: const Text('Reports'),
+                        ),
                     ],
                   ),
                 ),

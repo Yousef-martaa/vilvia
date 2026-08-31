@@ -83,12 +83,32 @@ a duplicate or changing its status. Each mutation locks the target, recounts
 the normalized Report rows, and stores the exact internal `report_count` in one
 transaction. Report counts are not exposed in public feed or comment schemas.
 
-Issue #102 provides report intake only. Moderator queues, review actions,
-content removal, automatic or AI moderation, blocking, appeals, notifications,
-and event reporting remain intentionally unimplemented.
+Issue #104 adds an administrator-only triage queue. `GET /reports` defaults to
+pending reports, supports any defined Report status as a filter, uses bounded
+`limit` (1-100) and `offset` (0-10,000) pagination, and orders by
+`created_at DESC, id DESC`. Responses
+contain the reason, state, timestamps, API-derived target kind/ID, and live safe
+content context. Post context is ID/title/body; Comment context is ID/body plus
+its parent Post ID/title. Reporter identity, email, private Profile fields, and
+internal report counters are never returned.
+Reports whose target relationships are internally inconsistent are logged and
+omitted from list responses rather than exposing malformed data or failing the
+entire queue. A status update with unavailable target context returns `409`
+before any status mutation is attempted.
+
+`PUT /reports/{report_id}/status` accepts only a resulting `reviewed` or
+`dismissed` decision for a pending report. Repeating the same terminal decision
+is idempotent; every other transition returns `409`. Status decisions lock the
+Report row where supported by the database, and triage does not hide, edit,
+delete, or unpublish the target. Both endpoints use `require_admin` and separate
+report-specific admin read/write rate-limit scopes. Flutter shows the Reports
+entry point only after a fresh server-backed Profile check and fails closed on
+sign-out, account changes, missing Profiles, stale requests, and request errors.
+Event reporting and content moderation actions remain intentionally
+unimplemented.
 
 Editing or deleting posts/comments, reactions on comments, replies, moderation
-UI, notifications, post details, and pagination are not part of this
+notifications, post details, and public-feed pagination are not part of this
 implementation.
 
 ### User Interactions

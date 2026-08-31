@@ -69,6 +69,8 @@ share a counter just because the identity is the same.
 | `POST /me/bootstrap` | 10/minute | verified user | Idempotent but does a real write attempt; called ~once per signup plus occasional retries. |
 | `GET /events/drafts` | 60/minute | verified admin | Admin-only; mostly a safety net against a buggy/runaway admin client, not an external attack surface (non-admins never get past `require_admin`). |
 | `POST /events`, `POST /events/{id}/publish` | 20/minute | verified admin | Meaningful admin writes; plenty for real content workflows, curbs a compromised or buggy admin session. |
+| `GET /reports` | 60/minute | verified admin | Report-specific admin read scope; separate from event drafts and all public/community quotas. |
+| `PUT /reports/{id}/status` | 20/minute | verified admin | Report-specific admin write scope for terminal triage decisions. |
 | `POST /posts` | 10/minute | verified user | Dedicated community-write quota limits spam and accidental repeated submissions without consuming other authenticated-route quotas. |
 | `GET /posts/{id}/comments` | 60/minute | client IP | Public discussion reads use the existing public-read setting. |
 | `POST /posts/{id}/comments` | 10/minute | verified user | Reuses the community-write setting with its own endpoint scope, so comment submissions do not consume the post-creation counter. |

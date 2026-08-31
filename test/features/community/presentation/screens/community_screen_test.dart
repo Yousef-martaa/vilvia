@@ -5,9 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:vilvia/features/auth/data/auth_service.dart';
+import 'package:vilvia/features/auth/data/profile.dart';
+import 'package:vilvia/features/auth/data/profile_api_client.dart';
 import 'package:vilvia/features/community/data/comment.dart';
 import 'package:vilvia/features/community/data/community_api_client.dart';
 import 'package:vilvia/features/community/data/post.dart';
+import 'package:vilvia/features/community/presentation/screens/admin_reports_screen.dart';
 import 'package:vilvia/features/community/presentation/screens/community_screen.dart';
 
 Post _fakePost({
@@ -174,14 +177,106 @@ class _FakeAuthService extends AuthService {
   Future<void> close() => _controller.close();
 }
 
+Profile _profile(UserRole role, {String id = 'user-1'}) => Profile(
+  id: id,
+  firstName: 'Robin',
+  email: 'admin@example.com',
+  role: role,
+  createdAt: DateTime.utc(2026),
+  updatedAt: DateTime.utc(2026),
+);
+
+class _FakeProfileApiClient extends ProfileApiClient {
+  _FakeProfileApiClient(this.result) : super(accessToken: () => null);
+
+  final Future<Profile> Function() result;
+
+  @override
+  Future<Profile> getMe() => result();
+}
+
 void main() {
-  Widget wrap(CommunityApiClient client, {AuthService? authService}) =>
-      MaterialApp(
-        home: CommunityScreen(
-          apiClient: client,
-          authService: authService ?? _FakeAuthService(),
+  Widget wrap(
+    CommunityApiClient client, {
+    AuthService? authService,
+    ProfileApiClient? profileApiClient,
+  }) => MaterialApp(
+    home: CommunityScreen(
+      apiClient: client,
+      authService: authService ?? _FakeAuthService(),
+      profileApiClient: profileApiClient,
+    ),
+  );
+
+  testWidgets('shows Reports only for a verified admin and opens the queue', (
+    tester,
+  ) async {
+    final authService = _FakeAuthService(session: _session());
+    final client = _StubApiClient(() async => []);
+    await tester.pumpWidget(
+      wrap(
+        client,
+        authService: authService,
+        profileApiClient: _FakeProfileApiClient(
+          () async => _profile(UserRole.admin),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Reports'), findsOneWidget);
+
+    await tester.tap(find.text('Reports'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AdminReportsScreen), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await authService.close();
+  });
+
+  testWidgets('hides Reports for parent, failed Profile, and signed out user', (
+    tester,
+  ) async {
+    for (final profileResult in <Future<Profile> Function()>[
+      () async => _profile(UserRole.parent),
+      () async => throw ProfileNotFoundException(),
+    ]) {
+      final authService = _FakeAuthService(session: _session());
+      await tester.pumpWidget(
+        wrap(
+          _StubApiClient(() async => []),
+          authService: authService,
+          profileApiClient: _FakeProfileApiClient(profileResult),
         ),
       );
+      await tester.pumpAndSettle();
+      expect(find.text('Reports'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await authService.close();
+    }
+  });
+
+  testWidgets('stale admin Profile result cannot restore UI after sign-out', (
+    tester,
+  ) async {
+    final authService = _FakeAuthService(session: _session());
+    final pendingProfile = Completer<Profile>();
+    await tester.pumpWidget(
+      wrap(
+        _StubApiClient(() async => []),
+        authService: authService,
+        profileApiClient: _FakeProfileApiClient(() => pendingProfile.future),
+      ),
+    );
+    await tester.pump();
+
+    authService.emit(null);
+    await tester.pump();
+    pendingProfile.complete(_profile(UserRole.admin));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reports'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await authService.close();
+  });
 
   testWidgets('signed-out users can browse posts without New Post', (
     tester,

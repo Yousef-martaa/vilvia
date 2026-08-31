@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'package:vilvia/core/constants/api_constants.dart';
 import 'package:vilvia/features/community/data/comment.dart';
+import 'package:vilvia/features/community/data/admin_report.dart';
 import 'package:vilvia/features/community/data/post.dart';
 
 class CommunityApiClient {
@@ -173,6 +174,67 @@ class CommunityApiClient {
     return ReportResult.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
+  }
+
+  Future<List<AdminReport>> getAdminReports({
+    ReportStatus status = ReportStatus.pending,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final token = _requireAccessToken();
+    final uri = Uri.parse('$_baseUrl/reports').replace(
+      queryParameters: {
+        'status': status.name,
+        'limit': '$limit',
+        'offset': '$offset',
+      },
+    );
+    final response = await _client.get(
+      uri,
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load reports: ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! List) {
+      throw Exception('Invalid response: expected a JSON list');
+    }
+    return decoded
+        .cast<Map<String, dynamic>>()
+        .map(AdminReport.fromJson)
+        .toList();
+  }
+
+  Future<AdminReport> updateAdminReportStatus({
+    required String reportId,
+    required ReportStatus status,
+  }) async {
+    final token = _requireAccessToken();
+    final response = await _client.put(
+      Uri.parse('$_baseUrl/reports/$reportId/status'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'status': status.name}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update report: ${response.statusCode}');
+    }
+    return AdminReport.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  String _requireAccessToken() {
+    final token = _accessToken?.call();
+    if (token == null) {
+      throw StateError(
+        'No active session; cannot call an authenticated endpoint.',
+      );
+    }
+    return token;
   }
 }
 
