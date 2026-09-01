@@ -208,6 +208,12 @@ The `comments` table stores comments made on community posts.
 
 Comments are stored as a separate table to simplify moderation, reporting, and future features while keeping queries efficient.
 
+Posts and Comments each store a non-nullable `is_hidden` moderation flag with a
+database default of `false`, keeping pre-existing content visible during
+migration. The flag is independent of Post publication and Report workflow
+status. It is internal to public APIs; only the administrator Report response
+exposes the current target visibility.
+
 Example path:
 
 ```text

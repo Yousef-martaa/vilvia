@@ -99,13 +99,27 @@ before any status mutation is attempted.
 `PUT /reports/{report_id}/status` accepts only a resulting `reviewed` or
 `dismissed` decision for a pending report. Repeating the same terminal decision
 is idempotent; every other transition returns `409`. Status decisions lock the
-Report row where supported by the database, and triage does not hide, edit,
-delete, or unpublish the target. Both endpoints use `require_admin` and separate
-report-specific admin read/write rate-limit scopes. Flutter shows the Reports
+target hierarchy before the Report row where supported by the database.
+
+`PUT /reports/{report_id}/target-visibility` accepts a strict Boolean
+`is_hidden` value and lets an administrator reversibly hide or restore the live
+Post or Comment target. Admin responses expose that one visibility flag while
+retaining the existing safe context, including for hidden targets. Moderation
+visibility, Report status, and Post publication remain independent. Hiding a
+Comment atomically recounts only visible Comments into its parent Post's
+`comment_count`; repeating the requested visibility is idempotent. Public feeds,
+comment lists, comment creation, reactions, and reporting use the same 404
+non-disclosure behavior for hidden targets, and public schemas never expose the
+visibility field. Both mutations consistently lock `Post -> Report` for a Post
+target or `Post -> Comment -> Report` for a Comment target, revalidate the
+Report after locking, and roll back visibility and counters together on failure.
+
+All Report endpoints use `require_admin` and separate report-specific admin
+read/write rate-limit scopes. Flutter shows Hide/Restore per Report and uses the
+authoritative response while preserving its stale-request protections. It shows the Reports
 entry point only after a fresh server-backed Profile check and fails closed on
 sign-out, account changes, missing Profiles, stale requests, and request errors.
-Event reporting and content moderation actions remain intentionally
-unimplemented.
+Event reporting remains intentionally unimplemented.
 
 Editing or deleting posts/comments, reactions on comments, replies, moderation
 notifications, post details, and public-feed pagination are not part of this

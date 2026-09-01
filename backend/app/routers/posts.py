@@ -38,7 +38,7 @@ def get_posts(
 ) -> list[PostResponse]:
     result = db.execute(
         select(Post)
-        .where(Post.is_published.is_(True))
+        .where(Post.is_published.is_(True), Post.is_hidden.is_(False))
         .order_by(Post.created_at.desc())
     )
     posts = result.scalars().all()
@@ -113,7 +113,11 @@ def create_post(
 
 
 def _published_post_query(post_id: uuid.UUID):
-    return select(Post).where(Post.id == post_id, Post.is_published.is_(True))
+    return select(Post).where(
+        Post.id == post_id,
+        Post.is_published.is_(True),
+        Post.is_hidden.is_(False),
+    )
 
 
 def _set_reaction(
@@ -311,13 +315,18 @@ def report_comment(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ReportResponse:
+    post = db.execute(
+        _published_post_query(post_id).with_for_update()
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
     comment = db.execute(
         select(Comment)
-        .join(Post, Comment.post_id == Post.id)
         .where(
             Comment.id == comment_id,
-            Comment.post_id == post_id,
-            Post.is_published.is_(True),
+            Comment.post_id == post.id,
+            Comment.is_hidden.is_(False),
         )
         .with_for_update()
     ).scalar_one_or_none()
@@ -356,7 +365,7 @@ def get_comments(
 
     result = db.execute(
         select(Comment)
-        .where(Comment.post_id == post_id)
+        .where(Comment.post_id == post_id, Comment.is_hidden.is_(False))
         .order_by(Comment.created_at.asc())
     )
     return result.scalars().all()

@@ -29,6 +29,12 @@ class ReportStatusUpdate(BaseModel):
     status: ReportStatus
 
 
+class ReportTargetVisibilityUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_hidden: bool
+
+
 class ReportPostContext(BaseModel):
     id: uuid.UUID
     title: str
@@ -50,5 +56,6 @@ class AdminReportResponse(BaseModel):
     updated_at: datetime
     target_kind: Literal["post", "comment"]
     target_id: uuid.UUID
+    target_is_hidden: bool
     post: ReportPostContext | None = None
     comment: ReportCommentContext | None = None

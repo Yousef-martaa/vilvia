@@ -84,6 +84,7 @@ def test_get_posts_query_filters_published_and_orders_newest_first():
 
     sql = str(mock_db.execute.call_args[0][0]).lower()
     assert "is_published is true" in sql
+    assert "is_hidden is false" in sql
     assert "order by posts.created_at desc" in sql
 
 
@@ -95,6 +96,7 @@ def test_get_posts_response_excludes_internal_fields():
     assert "author_id" not in data
     assert "report_count" not in data
     assert "is_published" not in data
+    assert "is_hidden" not in data
     assert "related_resource_id" not in data
 
 
@@ -208,6 +210,7 @@ def test_create_post_returns_409_when_verified_user_has_no_profile():
         "author_name",
         "author_avatar_url",
         "is_published",
+        "is_hidden",
         "reaction_count",
         "comment_count",
         "report_count",

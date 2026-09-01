@@ -27,6 +27,7 @@ class AdminReportsScreen extends StatefulWidget {
 class _AdminReportsScreenState extends State<AdminReportsScreen> {
   List<AdminReport>? _reports;
   final Set<String> _updatingIds = {};
+  final Set<String> _moderatingIds = {};
   bool _isLoading = true;
   bool _accessRevoked = false;
   int _authGeneration = 0;
@@ -61,6 +62,7 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
       setState(() {
         _reports = null;
         _updatingIds.clear();
+        _moderatingIds.clear();
         _isLoading = false;
         _error = null;
       });
@@ -103,7 +105,11 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
   }
 
   Future<void> _update(AdminReport report, ReportStatus status) async {
-    if (_accessRevoked || _updatingIds.contains(report.id)) return;
+    if (_accessRevoked ||
+        _updatingIds.contains(report.id) ||
+        _moderatingIds.contains(report.id)) {
+      return;
+    }
     final authGeneration = _authGeneration;
     setState(() => _updatingIds.add(report.id));
     try {
@@ -129,6 +135,46 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
     } finally {
       if (mounted && !_accessRevoked && authGeneration == _authGeneration) {
         setState(() => _updatingIds.remove(report.id));
+      }
+    }
+  }
+
+  Future<void> _updateVisibility(AdminReport report) async {
+    if (_accessRevoked ||
+        _updatingIds.contains(report.id) ||
+        _moderatingIds.contains(report.id)) {
+      return;
+    }
+    final authGeneration = _authGeneration;
+    setState(() => _moderatingIds.add(report.id));
+    try {
+      final updated = await widget.apiClient.updateAdminReportTargetVisibility(
+        reportId: report.id,
+        isHidden: !report.targetIsHidden,
+      );
+      if (!mounted || _accessRevoked || authGeneration != _authGeneration) {
+        return;
+      }
+      setState(() {
+        _reports = _reports?.map((item) {
+          if (item.id == updated.id) return updated;
+          if (item.targetKind == updated.targetKind &&
+              item.targetId == updated.targetId) {
+            return item.withTargetVisibility(updated.targetIsHidden);
+          }
+          return item;
+        }).toList();
+      });
+    } catch (_) {
+      if (!mounted || _accessRevoked || authGeneration != _authGeneration) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update content visibility.')),
+      );
+    } finally {
+      if (mounted && !_accessRevoked && authGeneration == _authGeneration) {
+        setState(() => _moderatingIds.remove(report.id));
       }
     }
   }
@@ -182,8 +228,10 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
         itemBuilder: (_, index) => _ReportCard(
           report: reports[index],
           isUpdating: _updatingIds.contains(reports[index].id),
+          isModerating: _moderatingIds.contains(reports[index].id),
           onReviewed: () => _update(reports[index], ReportStatus.reviewed),
           onDismissed: () => _update(reports[index], ReportStatus.dismissed),
+          onVisibilityChanged: () => _updateVisibility(reports[index]),
         ),
       ),
     );
@@ -194,14 +242,18 @@ class _ReportCard extends StatelessWidget {
   const _ReportCard({
     required this.report,
     required this.isUpdating,
+    required this.isModerating,
     required this.onReviewed,
     required this.onDismissed,
+    required this.onVisibilityChanged,
   });
 
   final AdminReport report;
   final bool isUpdating;
+  final bool isModerating;
   final VoidCallback onReviewed;
   final VoidCallback onDismissed;
+  final VoidCallback onVisibilityChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +284,21 @@ class _ReportCard extends StatelessWidget {
               'Reason: ${report.reason}',
               style: const TextStyle(color: VilviaColors.gray),
             ),
+            const SizedBox(height: 8),
+            Text(report.targetIsHidden ? 'Hidden' : 'Visible'),
+            Align(
+              alignment: Alignment.centerRight,
+              child: isModerating
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(),
+                    )
+                  : OutlinedButton(
+                      onPressed: isUpdating ? null : onVisibilityChanged,
+                      child: Text(report.targetIsHidden ? 'Restore' : 'Hide'),
+                    ),
+            ),
             const SizedBox(height: 12),
             if (isUpdating)
               const Center(child: CircularProgressIndicator())
@@ -240,12 +307,12 @@ class _ReportCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: onDismissed,
+                    onPressed: isModerating ? null : onDismissed,
                     child: const Text('Dismiss'),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: onReviewed,
+                    onPressed: isModerating ? null : onReviewed,
                     child: const Text('Review'),
                   ),
                 ],

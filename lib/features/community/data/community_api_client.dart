@@ -227,6 +227,29 @@ class CommunityApiClient {
     );
   }
 
+  Future<AdminReport> updateAdminReportTargetVisibility({
+    required String reportId,
+    required bool isHidden,
+  }) async {
+    final token = _requireAccessToken();
+    final response = await _client.put(
+      Uri.parse('$_baseUrl/reports/$reportId/target-visibility'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'is_hidden': isHidden}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to update report target visibility: ${response.statusCode}',
+      );
+    }
+    return AdminReport.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   String _requireAccessToken() {
     final token = _accessToken?.call();
     if (token == null) {

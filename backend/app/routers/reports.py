@@ -2,7 +2,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, aliased
 
@@ -19,6 +19,7 @@ from app.schemas.report import (
     ReportCommentContext,
     ReportPostContext,
     ReportStatusUpdate,
+    ReportTargetVisibilityUpdate,
 )
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -55,6 +56,7 @@ def _serialize_report(row) -> AdminReportResponse | None:
             updated_at=report.updated_at,
             target_kind="post",
             target_id=report.post_id,
+            target_is_hidden=post.is_hidden,
             post=ReportPostContext(id=post.id, title=post.title, body=post.body),
         )
     if (
@@ -72,6 +74,7 @@ def _serialize_report(row) -> AdminReportResponse | None:
         updated_at=report.updated_at,
         target_kind="comment",
         target_id=report.comment_id,
+        target_is_hidden=comment.is_hidden,
         comment=ReportCommentContext(
             id=comment.id,
             body=comment.body,
@@ -133,19 +136,8 @@ def update_report_status(
     admin_profile: Profile = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> AdminReportResponse:
-    report = db.execute(
-        select(Report).where(Report.id == report_id).with_for_update()
-    ).scalar_one_or_none()
-    if report is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-
-    row = db.execute(_report_query().where(Report.id == report_id)).one()
-    serialized = _serialize_report(row)
-    if serialized is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Report target context is unavailable.",
-        )
+    report, _, _ = _lock_report_context(report_id, db)
+    serialized = _locked_serialized_report(report_id, db)
 
     if report.status == body.status and report.status in {
         ReportStatus.reviewed,
@@ -165,9 +157,143 @@ def update_report_status(
     report.status = body.status
     try:
         db.flush()
-        serialized = _serialize_report(row)
+        serialized = _locked_serialized_report(report_id, db)
         db.commit()
-    except SQLAlchemyError:
+    except (SQLAlchemyError, HTTPException):
+        db.rollback()
+        raise
+    return serialized
+
+
+def _unavailable_target() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Report target context is unavailable.",
+    )
+
+
+def _locked_serialized_report(
+    report_id: uuid.UUID, db: Session
+) -> AdminReportResponse:
+    row = db.execute(_report_query().where(Report.id == report_id)).one_or_none()
+    if row is None:
+        raise _unavailable_target()
+    serialized = _serialize_report(row)
+    if serialized is None:
+        raise _unavailable_target()
+    return serialized
+
+
+def _lock_report_context(
+    report_id: uuid.UUID, db: Session
+) -> tuple[Report, Post | Comment, Post | None]:
+    """Lock a report through its target in one deterministic hierarchy.
+
+    The first Report read is deliberately unlocked and used only to discover
+    target IDs. The locked Report is revalidated after acquiring Post, or
+    Post then Comment, so a concurrent target change cannot be acted upon.
+    """
+    preliminary = db.execute(
+        select(Report).where(Report.id == report_id)
+    ).scalar_one_or_none()
+    if preliminary is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    has_post_target = preliminary.post_id is not None
+    has_comment_target = preliminary.comment_id is not None
+    if has_post_target == has_comment_target:
+        raise _unavailable_target()
+
+    parent_post: Post | None = None
+    target: Post | Comment
+    if has_post_target:
+        discovered_target_id = preliminary.post_id
+        target = db.execute(
+            select(Post).where(Post.id == discovered_target_id).with_for_update()
+        ).scalar_one_or_none()
+        if target is None:
+            raise _unavailable_target()
+    else:
+        discovered_target_id = preliminary.comment_id
+        discovered_comment = db.execute(
+            select(Comment).where(Comment.id == discovered_target_id)
+        ).scalar_one_or_none()
+        if discovered_comment is None:
+            raise _unavailable_target()
+        parent_post = db.execute(
+            select(Post)
+            .where(Post.id == discovered_comment.post_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if parent_post is None:
+            raise _unavailable_target()
+        target = db.execute(
+            select(Comment)
+            .where(
+                Comment.id == discovered_target_id,
+                Comment.post_id == parent_post.id,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if target is None:
+            raise _unavailable_target()
+
+    report = db.execute(
+        select(Report).where(Report.id == report_id).with_for_update()
+    ).scalar_one_or_none()
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if has_post_target:
+        if report.post_id != target.id or report.comment_id is not None:
+            raise _unavailable_target()
+    elif (
+        report.comment_id != target.id
+        or report.post_id is not None
+        or parent_post is None
+        or target.post_id != parent_post.id
+    ):
+        raise _unavailable_target()
+    return report, target, parent_post
+
+
+@router.put(
+    "/{report_id}/target-visibility",
+    response_model=AdminReportResponse,
+    dependencies=[
+        Depends(
+            rate_limit_admin(
+                "reports:target-visibility",
+                settings.rate_limit_admin_write_per_minute,
+            )
+        )
+    ],
+)
+def update_report_target_visibility(
+    report_id: uuid.UUID,
+    body: ReportTargetVisibilityUpdate,
+    admin_profile: Profile = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> AdminReportResponse:
+    """Hide or restore a Report target using target-first row locking."""
+    _, target, parent_post = _lock_report_context(report_id, db)
+
+    if target.is_hidden == body.is_hidden:
+        return _locked_serialized_report(report_id, db)
+
+    target.is_hidden = body.is_hidden
+    try:
+        db.flush()
+        if parent_post is not None:
+            parent_post.comment_count = db.scalar(
+                select(func.count()).select_from(Comment).where(
+                    Comment.post_id == parent_post.id,
+                    Comment.is_hidden.is_(False),
+                )
+            )
+            db.flush()
+        serialized = _locked_serialized_report(report_id, db)
+        db.commit()
+    except (SQLAlchemyError, HTTPException):
         db.rollback()
         raise
     return serialized
