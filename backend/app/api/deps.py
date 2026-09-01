@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import InvalidTokenError, verify_access_token
 from app.core.database import SessionLocal
-from app.models.enums import UserRole
+from app.models.account_deletion_request import AccountDeletionRequest
+from app.models.enums import AccountDeletionStatus, UserRole
 from app.models.profile import Profile
 
 log = logging.getLogger(__name__)
@@ -84,6 +85,55 @@ def get_optional_current_user(
     return get_current_user(authorization)
 
 
+def ensure_account_active(
+    current_user: AuthenticatedUser,
+    db: Session,
+    *,
+    serialize_mutation: bool = False,
+) -> None:
+    ensure_user_id_active(
+        current_user.id, db, serialize_mutation=serialize_mutation
+    )
+
+
+def ensure_user_id_active(
+    user_id: uuid.UUID,
+    db: Session,
+    *,
+    serialize_mutation: bool = False,
+) -> None:
+    """Reject authenticated mutations after account deletion is requested.
+
+    Reads remain available while an operator processes the request, but no
+    endpoint using this dependency may create or alter user-owned data.
+
+    Global mutation lock order is: account advisory barrier, then domain row
+    locks. Community domain locks must continue Post -> Comment -> Report.
+    Every future authenticated mutation must call this with
+    ``serialize_mutation=True`` before acquiring any domain row lock.
+    """
+    if serialize_mutation:
+        # Request creation takes the same transaction-scoped lock. This drains
+        # an earlier in-flight write and makes a later write re-check the
+        # durable request before mutating. Using the underlying connection
+        # keeps this coordination separate from Community's row-query order.
+        advisory_key = int.from_bytes(user_id.bytes[:8], signed=True)
+        db.connection().exec_driver_sql(
+            "SELECT pg_advisory_xact_lock(%s)", (advisory_key,)
+        )
+
+    deletion_request = db.get(AccountDeletionRequest, user_id)
+    if getattr(deletion_request, "status", None) in {
+        AccountDeletionStatus.requested,
+        AccountDeletionStatus.auth_deleted,
+        AccountDeletionStatus.completed,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Account deletion has been requested.",
+        )
+
+
 def require_admin(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -105,4 +155,5 @@ def require_admin(
     if profile is None or profile.role != UserRole.admin:
         log.warning("admin access denied for user id=%s", current_user.id)
         raise HTTPException(status_code=403, detail="Admin access required")
+    ensure_user_id_active(current_user.id, db)
     return profile

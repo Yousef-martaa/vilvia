@@ -79,8 +79,11 @@ def test_post_report_creates_server_owned_report_and_authoritative_count():
     db.commit.assert_called_once_with()
 
 
-def test_post_report_executes_post_lock_before_report_lookup():
+def test_post_report_executes_advisory_then_post_lock_then_report_lookup():
     _, db, post = report_db()
+    timeline = MagicMock()
+    timeline.attach_mock(db.connection.return_value.exec_driver_sql, "advisory")
+    timeline.attach_mock(db.execute, "execute")
 
     response = client.put(
         f"/posts/{post.id}/report", json={"reason": "Reason"}
@@ -91,6 +94,11 @@ def test_post_report_executes_post_lock_before_report_lookup():
     assert "from posts" in sql[0] and "for update" in sql[0]
     assert "from reports" in sql[1]
     assert "for update" not in sql[1]
+    assert [call[0] for call in timeline.method_calls[:3]] == [
+        "advisory",
+        "execute",
+        "execute",
+    ]
 
 
 def test_duplicate_post_report_updates_reason_without_creating_row():
@@ -137,7 +145,7 @@ def test_post_report_returns_404_for_missing_or_unpublished_post():
     )
 
     assert response.status_code == 404
-    db.get.assert_not_called()
+    assert db.get.call_count == 1  # deletion check runs before target lookup
     db.commit.assert_not_called()
 
 
@@ -193,8 +201,11 @@ def test_comment_report_validates_parent_and_creates_report():
     assert "for update" in post_sql and "for update" in comment_sql
 
 
-def test_comment_report_executes_post_then_comment_then_report_lookup():
+def test_comment_report_executes_advisory_post_comment_then_report_lookup():
     _, db, comment = report_db(target_type="comment")
+    timeline = MagicMock()
+    timeline.attach_mock(db.connection.return_value.exec_driver_sql, "advisory")
+    timeline.attach_mock(db.execute, "execute")
 
     response = client.put(
         f"/posts/{comment.post_id}/comments/{comment.id}/report",
@@ -207,6 +218,12 @@ def test_comment_report_executes_post_then_comment_then_report_lookup():
     assert "from comments" in sql[1] and "for update" in sql[1]
     assert "from reports" in sql[2]
     assert "for update" not in sql[2]
+    assert [call[0] for call in timeline.method_calls[:4]] == [
+        "advisory",
+        "execute",
+        "execute",
+        "execute",
+    ]
 
 
 @pytest.mark.parametrize("case", ["missing_parent", "unpublished_parent", "missing_comment", "wrong_parent"])
@@ -219,7 +236,7 @@ def test_comment_report_returns_404_when_target_query_finds_nothing(case):
     )
 
     assert response.status_code == 404
-    db.get.assert_not_called()
+    assert db.get.call_count == 1  # deletion check runs before target locks
     db.commit.assert_not_called()
 
 
@@ -257,7 +274,7 @@ def test_comment_report_hidden_comment_uses_generic_not_found_without_mutation()
     assert response.json() == {"detail": "Comment not found"}
     comment_sql = str(db.execute.call_args_list[1].args[0]).lower()
     assert "comments.is_hidden is false" in comment_sql
-    db.get.assert_not_called()
+    assert db.get.call_count == 1  # deletion check runs before target locks
     db.add.assert_not_called()
     db.commit.assert_not_called()
 

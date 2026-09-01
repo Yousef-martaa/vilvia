@@ -185,6 +185,9 @@ def test_comment_response_excludes_internal_fields():
 def test_create_comment_uses_profile_and_updates_count_in_one_commit():
     post = make_post(comment_count=2)
     user, db = override_user_and_db(post=post)
+    timeline = MagicMock()
+    timeline.attach_mock(db.connection.return_value.exec_driver_sql, "advisory")
+    timeline.attach_mock(db.execute, "execute")
 
     def refresh(instance):
         if isinstance(instance, Comment):
@@ -212,6 +215,10 @@ def test_create_comment_uses_profile_and_updates_count_in_one_commit():
     assert "for update" in sql
     assert "is_published is true" in sql
     assert "is_hidden is false" in sql
+    assert [call[0] for call in timeline.method_calls[:2]] == [
+        "advisory",
+        "execute",
+    ]
 
 
 def test_create_comment_requires_authentication():

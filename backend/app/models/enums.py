@@ -56,5 +56,11 @@ class ReportStatus(str, enum.Enum):
     dismissed = "dismissed"
 
 
+class AccountDeletionStatus(str, enum.Enum):
+    requested = "requested"
+    auth_deleted = "auth_deleted"
+    completed = "completed"
+
+
 def str_enum(enum_class):
     return SAEnum(enum_class, native_enum=False, values_callable=lambda enum_class: [member.value for member in enum_class])

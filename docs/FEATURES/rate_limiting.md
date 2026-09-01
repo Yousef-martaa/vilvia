@@ -67,6 +67,7 @@ share a counter just because the identity is the same.
 | `GET /resources`, `GET /resources/{id}`, `GET /events` | 60/minute | client IP | Zero-auth-cost, highest-volume surface -- the only place with no gate at all before this. Generous enough for normal browsing, tight enough to blunt naive scraping. |
 | `GET /me` | 60/minute | verified user | Low-cost authenticated read; loose to avoid false positives against a user's own client. |
 | `POST /me/bootstrap` | 10/minute | verified user | Idempotent but does a real write attempt; called ~once per signup plus occasional retries. |
+| `POST /me/account-deletion-request` | 5/minute | verified user | Destructive-lifecycle request with its own narrow scope; retries are idempotent and do not consume bootstrap quota. |
 | `GET /events/drafts` | 60/minute | verified admin | Admin-only; mostly a safety net against a buggy/runaway admin client, not an external attack surface (non-admins never get past `require_admin`). |
 | `POST /events`, `POST /events/{id}/publish` | 20/minute | verified admin | Meaningful admin writes; plenty for real content workflows, curbs a compromised or buggy admin session. |
 | `GET /reports` | 60/minute | verified admin | Report-specific admin read scope; separate from event drafts and all public/community quotas. |

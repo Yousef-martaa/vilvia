@@ -252,9 +252,9 @@ def test_bootstrap_returns_409_and_rolls_back_on_conflicting_email():
 
     assert response.status_code == 409
     mock_db.rollback.assert_called_once()
-    # The session must not be left in an aborted-transaction state: no
-    # further commands (like the post-insert read-back) were attempted.
-    mock_db.get.assert_not_called()
+    # The only read was the pre-insert deletion guard; no post-error
+    # Profile read-back was attempted on the aborted session.
+    assert mock_db.get.call_count == 1
 
 
 def test_bootstrap_returns_500_if_profile_is_unreadable_after_insert():

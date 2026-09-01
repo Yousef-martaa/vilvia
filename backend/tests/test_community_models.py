@@ -1,6 +1,8 @@
 from sqlalchemy import Boolean, CheckConstraint, ForeignKey
 
+from app.models.account_deletion_request import AccountDeletionRequest
 from app.models.comment import Comment
+from app.models.event import Event
 from app.models.post import Post
 from app.models.post_reaction import PostReaction
 from app.models.report import Report
@@ -95,3 +97,18 @@ def test_report_target_columns_are_indexed():
     }
     assert indexes["ix_reports_post_id"] == ("post_id",)
     assert indexes["ix_reports_comment_id"] == ("comment_id",)
+
+
+def test_account_deletion_request_is_not_tied_to_profile_lifetime():
+    column = AccountDeletionRequest.__table__.c.user_id
+    assert column.primary_key is True
+    assert not column.foreign_keys
+
+
+def test_event_creator_is_retained_with_null_ownership_on_profile_delete():
+    assert_foreign_key(
+        Event.__table__.c.created_by,
+        "profiles.id",
+        "SET NULL",
+        nullable=True,
+    )

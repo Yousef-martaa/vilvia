@@ -10,6 +10,7 @@ bypass.
 
 import time
 import uuid
+from datetime import datetime, timezone
 
 import jwt
 import pytest
@@ -70,7 +71,79 @@ def test_valid_token_returns_claims(keypair):
 
 def test_expired_token_is_rejected(keypair):
     private_key, _ = keypair
-    token = _make_token(private_key, exp=int(time.time()) - 10)
+    token = _make_token(
+        private_key,
+        exp=(
+            int(time.time())
+            - auth_module.settings.supabase_jwt_clock_skew_seconds
+            - 10
+        ),
+    )
+    with pytest.raises(InvalidTokenError):
+        verify_access_token(token)
+
+
+def test_token_at_maximum_configured_lifetime_is_accepted(keypair):
+    private_key, _ = keypair
+    now = int(time.time())
+    token = _make_token(
+        private_key,
+        iat=now,
+        exp=now + auth_module.settings.supabase_access_token_max_lifetime_seconds,
+    )
+
+    assert verify_access_token(token)["iat"] == now
+
+
+def test_future_iat_and_expiry_leeway_create_two_skew_window(
+    keypair, monkeypatch
+):
+    private_key, _ = keypair
+    backend_now = int(time.time())
+    skew = auth_module.settings.supabase_jwt_clock_skew_seconds
+    max_lifetime = auth_module.settings.supabase_access_token_max_lifetime_seconds
+    issued_at = backend_now + skew
+    expires_at = issued_at + max_lifetime
+    token = _make_token(private_key, iat=issued_at, exp=expires_at)
+    clock = {"now": backend_now}
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromtimestamp(clock["now"], tz=tz or timezone.utc)
+
+    monkeypatch.setattr(jwt.api_jwt, "datetime", FrozenDateTime)
+
+    assert verify_access_token(token)["iat"] == issued_at
+    clock["now"] = expires_at + skew - 1
+    assert verify_access_token(token)["exp"] == expires_at
+    assert clock["now"] - backend_now == max_lifetime + (2 * skew) - 1
+
+
+def test_token_longer_than_configured_maximum_is_rejected(keypair):
+    private_key, _ = keypair
+    now = int(time.time())
+    token = _make_token(
+        private_key,
+        iat=now,
+        exp=(
+            now
+            + auth_module.settings.supabase_access_token_max_lifetime_seconds
+            + 1
+        ),
+    )
+
+    with pytest.raises(InvalidTokenError):
+        verify_access_token(token)
+
+
+def test_token_without_issued_at_is_rejected(keypair):
+    private_key, _ = keypair
+    token = _make_token(private_key)
+    payload = jwt.decode(token, options={"verify_signature": False})
+    del payload["iat"]
+    token = jwt.encode(payload, private_key, algorithm="ES256")
+
     with pytest.raises(InvalidTokenError):
         verify_access_token(token)
 

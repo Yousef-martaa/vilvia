@@ -1,15 +1,25 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.deps import AuthenticatedUser, get_current_user, get_db
+from app.api.deps import (
+    AuthenticatedUser,
+    ensure_account_active,
+    get_current_user,
+    get_db,
+)
 from app.core.rate_limit import rate_limit_user
 from app.core.settings import settings
+from app.models.account_deletion_request import AccountDeletionRequest
 from app.models.enums import UserRole
 from app.models.profile import Profile
+from app.schemas.account_deletion import (
+    AccountDeletionRequestBody,
+    AccountDeletionRequestResponse,
+)
 from app.schemas.profile import BootstrapRequest, ProfileResponse
 
 log = logging.getLogger(__name__)
@@ -73,6 +83,7 @@ def bootstrap_profile(
     the transaction is rolled back (so the session isn't left aborted)
     and a clear 409 is returned instead of a raw 500.
     """
+    ensure_account_active(current_user, db, serialize_mutation=True)
     stmt = (
         pg_insert(Profile)
         .values(
@@ -112,3 +123,47 @@ def bootstrap_profile(
             detail="Failed to provision profile.",
         )
     return profile
+
+
+@router.post(
+    "/account-deletion-request",
+    response_model=AccountDeletionRequestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[
+        Depends(
+            rate_limit_user(
+                "me:account-deletion-request",
+                settings.rate_limit_account_deletion_request_per_minute,
+            )
+        )
+    ],
+)
+def request_account_deletion(
+    _body: AccountDeletionRequestBody | None = None,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AccountDeletionRequest:
+    """Durably and idempotently request destructive account deletion."""
+    statement = (
+        pg_insert(AccountDeletionRequest)
+        .values(user_id=current_user.id)
+        .on_conflict_do_update(
+            index_elements=[AccountDeletionRequest.user_id],
+            set_={"user_id": current_user.id},
+        )
+        .returning(AccountDeletionRequest)
+    )
+    try:
+        advisory_key = int.from_bytes(current_user.id.bytes[:8], signed=True)
+        db.connection().exec_driver_sql(
+            "SELECT pg_advisory_xact_lock(%s)", (advisory_key,)
+        )
+        deletion_request = db.execute(statement).scalar_one()
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The deletion request could not be recorded. Try again.",
+        ) from None
+    return deletion_request

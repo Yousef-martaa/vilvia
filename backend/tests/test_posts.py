@@ -169,6 +169,11 @@ def valid_create_body():
 
 def test_create_post_uses_verified_profile_and_publishes_immediately():
     user, mock_db = authenticated_post_db()
+    timeline = MagicMock()
+    timeline.attach_mock(
+        mock_db.connection.return_value.exec_driver_sql, "advisory"
+    )
+    timeline.attach_mock(mock_db.add, "add")
 
     response = client.post("/posts", json=valid_create_body())
 
@@ -183,6 +188,10 @@ def test_create_post_uses_verified_profile_and_publishes_immediately():
     assert post.is_published is True
     mock_db.commit.assert_called_once_with()
     mock_db.refresh.assert_called_once_with(post)
+    assert [call[0] for call in timeline.method_calls[:2]] == [
+        "advisory",
+        "add",
+    ]
 
 
 def test_create_post_requires_authentication():
