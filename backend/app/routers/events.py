@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import ensure_user_id_active, get_db, require_admin
 from app.core.rate_limit import rate_limit_admin, rate_limit_public
 from app.core.settings import settings
 from app.models.event import Event
@@ -84,6 +84,7 @@ def create_event(
     by `require_admin` from the verified identity -- EventCreate has no
     `created_by` field, so there is no client input path to set it.
     """
+    ensure_user_id_active(admin_profile.id, db, serialize_mutation=True)
     event = Event(
         title=body.title,
         description=body.description,
@@ -133,6 +134,7 @@ def publish_event(
     only so a client-supplied field (e.g. `is_published`, `created_by`)
     is rejected with 422 rather than silently ignored.
     """
+    ensure_user_id_active(admin_profile.id, db, serialize_mutation=True)
     event = db.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")

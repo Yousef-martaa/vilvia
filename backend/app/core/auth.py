@@ -57,11 +57,20 @@ def verify_access_token(token: str) -> dict:
             algorithms=["ES256"],
             issuer=_EXPECTED_ISSUER,
             audience=_EXPECTED_AUDIENCE,
+            leeway=settings.supabase_jwt_clock_skew_seconds,
+            options={"require": ["exp", "iat"]},
         )
     except jwt.PyJWTError as exc:
         raise InvalidTokenError(str(exc)) from exc
 
     if claims.get("role") != "authenticated":
         raise InvalidTokenError("token is not an authenticated-user session")
+
+    try:
+        token_lifetime = claims["exp"] - claims["iat"]
+    except (KeyError, TypeError):
+        raise InvalidTokenError("token lifetime claims are invalid") from None
+    if token_lifetime > settings.supabase_access_token_max_lifetime_seconds:
+        raise InvalidTokenError("token lifetime exceeds the accepted maximum")
 
     return claims

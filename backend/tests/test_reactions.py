@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import AuthenticatedUser, get_current_user, get_db
 from app.main import app
+from app.models.account_deletion_request import AccountDeletionRequest
 from app.models.post_reaction import PostReaction
 from app.models.profile import Profile
 
@@ -34,6 +35,8 @@ def reaction_db(*, post=True, profile=True, reaction=None, count=1):
     db.execute.return_value.scalar_one_or_none.return_value = stored_post
 
     def get(model, identity):
+        if model is AccountDeletionRequest:
+            return None
         if model is Profile:
             return stored_profile
         if model is PostReaction:
@@ -48,6 +51,9 @@ def reaction_db(*, post=True, profile=True, reaction=None, count=1):
 
 def test_put_adds_server_owned_reaction_and_returns_authoritative_count():
     user, db, post = reaction_db(count=4)
+    timeline = MagicMock()
+    timeline.attach_mock(db.connection.return_value.exec_driver_sql, "advisory")
+    timeline.attach_mock(db.execute, "execute")
 
     response = client.put(f"/posts/{post.id}/reaction")
 
@@ -66,6 +72,10 @@ def test_put_adds_server_owned_reaction_and_returns_authoritative_count():
     count_sql = str(db.scalar.call_args.args[0]).lower()
     assert "count(" in count_sql
     assert "post_reactions.post_id" in count_sql
+    assert [call[0] for call in timeline.method_calls[:2]] == [
+        "advisory",
+        "execute",
+    ]
 
 
 def test_put_is_idempotent_when_reaction_already_exists():
@@ -112,7 +122,7 @@ def test_reaction_returns_404_for_missing_or_unpublished_post(method):
     response = getattr(client, method)(f"/posts/{uuid.uuid4()}/reaction")
 
     assert response.status_code == 404
-    db.get.assert_not_called()
+    assert db.get.call_count == 1  # deletion check runs before target lookup
     db.commit.assert_not_called()
 
 

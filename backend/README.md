@@ -84,6 +84,25 @@ explicitly approved trusted provider — unlike Vilvia-authored content,
 which requires manual review before publication (see
 `docs/FEATURES/parenting_information.md`).
 
+## Account deletion operations
+
+Account deletion is fulfilled manually from a trusted operator environment:
+
+```bash
+SUPABASE_SERVICE_ROLE_KEY=<secret> python scripts/fulfill_account_deletions.py USER_UUID
+```
+
+The command is idempotent and resumes from durable state after a Supabase or
+PostgreSQL failure. Run `python scripts/fulfill_account_deletions.py
+--purge-completed` regularly to remove expired recovery records. Full deletion,
+retry, counter, JWT, secret-handling, and retention behavior is documented in
+`docs/FEATURES/account_deletion.md`.
+
+`SUPABASE_ACCESS_TOKEN_MAX_LIFETIME_SECONDS` must match the production Supabase
+Auth setting. Completed-request retention must cover that lifetime plus
+twice `SUPABASE_JWT_CLOCK_SKEW_SECONDS`; unsafe configuration fails at startup
+and again before purge.
+
 ## Test
 
 ```bash
@@ -131,6 +150,7 @@ via `Settings`/`.env` (`RATE_LIMIT_*`, see `.env.example`); defaults:
 | `GET /resources`, `GET /resources/{id}`, `GET /events` | 60/minute | client IP |
 | `GET /me` | 60/minute | verified user |
 | `POST /me/bootstrap` | 10/minute | verified user |
+| `POST /me/account-deletion-request` | 5/minute | verified user |
 | `GET /events/drafts` | 60/minute | verified admin |
 | `POST /events`, `POST /events/{id}/publish` | 20/minute | verified admin |
 | `GET /health` | exempt | -- |

@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, aliased
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import ensure_user_id_active, get_db, require_admin
 from app.core.rate_limit import rate_limit_admin
 from app.core.settings import settings
 from app.models.comment import Comment
@@ -136,6 +136,7 @@ def update_report_status(
     admin_profile: Profile = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> AdminReportResponse:
+    ensure_user_id_active(admin_profile.id, db, serialize_mutation=True)
     report, _, _ = _lock_report_context(report_id, db)
     serialized = _locked_serialized_report(report_id, db)
 
@@ -275,6 +276,7 @@ def update_report_target_visibility(
     db: Session = Depends(get_db),
 ) -> AdminReportResponse:
     """Hide or restore a Report target using target-first row locking."""
+    ensure_user_id_active(admin_profile.id, db, serialize_mutation=True)
     _, target, parent_post = _lock_report_context(report_id, db)
 
     if target.is_hidden == body.is_hidden:

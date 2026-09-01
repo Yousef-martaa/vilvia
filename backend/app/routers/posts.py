@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import (
     AuthenticatedUser,
+    ensure_account_active,
     get_current_user,
     get_db,
     get_optional_current_user,
@@ -83,6 +84,7 @@ def create_post(
     fields are assigned only by the server. ``PostCreate.extra='forbid'``
     rejects attempts to supply any of them instead of silently ignoring them.
     """
+    ensure_account_active(current_user, db, serialize_mutation=True)
     profile = db.get(Profile, current_user.id)
     if profile is None:
         raise HTTPException(
@@ -127,6 +129,7 @@ def _set_reaction(
     current_user: AuthenticatedUser,
     db: Session,
 ) -> PostReactionResponse:
+    ensure_account_active(current_user, db, serialize_mutation=True)
     post = db.execute(
         _published_post_query(post_id).with_for_update()
     ).scalar_one_or_none()
@@ -280,6 +283,7 @@ def report_post(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ReportResponse:
+    ensure_account_active(current_user, db, serialize_mutation=True)
     post = db.execute(
         _published_post_query(post_id).with_for_update()
     ).scalar_one_or_none()
@@ -315,6 +319,7 @@ def report_comment(
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ReportResponse:
+    ensure_account_active(current_user, db, serialize_mutation=True)
     post = db.execute(
         _published_post_query(post_id).with_for_update()
     ).scalar_one_or_none()
@@ -390,6 +395,7 @@ def create_comment(
     db: Session = Depends(get_db),
 ) -> dict:
     """Create a comment and update its published Post's count atomically."""
+    ensure_account_active(current_user, db, serialize_mutation=True)
     post = db.execute(
         _published_post_query(post_id).with_for_update()
     ).scalar_one_or_none()

@@ -1,12 +1,13 @@
 import inspect
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from fastapi import HTTPException
 
 from app.api.deps import AuthenticatedUser, get_db, require_admin
 from app.models.enums import UserRole
+from app.models.account_deletion_request import AccountDeletionRequest
 from app.models.profile import Profile
 
 
@@ -53,14 +54,19 @@ def test_require_admin_allows_an_admin_profile():
     user = _make_user()
     admin_profile = MagicMock(role=UserRole.admin)
     mock_db = MagicMock()
-    mock_db.get.return_value = admin_profile
+    mock_db.get.side_effect = lambda model, _id: (
+        admin_profile if model is Profile else None
+    )
 
     result = require_admin(current_user=user, db=mock_db)
 
     assert result is admin_profile
     # Resolved server-side from the verified identity, not from any
     # client-supplied value.
-    mock_db.get.assert_called_once_with(Profile, user.id)
+    assert mock_db.get.call_args_list == [
+        call(Profile, user.id),
+        call(AccountDeletionRequest, user.id),
+    ]
 
 
 def test_require_admin_rejects_a_non_admin_profile():

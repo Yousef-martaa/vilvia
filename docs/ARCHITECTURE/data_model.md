@@ -170,7 +170,9 @@ updatedAt: timestamp
 Notes:
 
 - `authorId` is a required foreign key to `profiles.id`, linking the post to the user who created it.
-- Profile deletion is restricted while authored posts still exist, preventing the silent deletion of community discussions. A future account-deletion or anonymization flow must handle retained content explicitly.
+- Normal Profile deletion is restricted while authored Posts exist. The explicit
+  account-deletion workflow first deletes every authored Post; its existing
+  cascades also delete the Post's Comments, reactions, and Reports.
 - `authorName` and `authorAvatarUrl` are intentionally duplicated to improve feed performance.
 - Community posts are user-generated content and should not be treated as trusted official information.
 - This duplication is intentional to reduce joins when displaying the community feed.
@@ -237,7 +239,9 @@ updatedAt: timestamp
 Notes:
 
 - `postId` is a required foreign key to `posts.id`. Deleting a post cascades to its comments because comments have no independent lifecycle without their parent post.
-- `authorId` is a required foreign key to `profiles.id`. Profile deletion is restricted while authored comments still exist, so community content is not silently removed.
+- `authorId` is a required foreign key to `profiles.id`. The explicit
+  account-deletion workflow deletes authored Comments before deleting the
+  Profile; no anonymous author is substituted.
 - `authorName` and `authorAvatarUrl` are intentionally duplicated to improve read performance.
 - Comments are user-generated content and should not be treated as trusted information.
 - Comments may be reported for moderation.
@@ -286,6 +290,29 @@ Notes:
   it is not stored as a polymorphic discriminator. Reviewed and dismissed are
   terminal triage states. Triage changes only the Report status and never the
   target content. No content snapshots or reporter/Profile details are exposed.
+
+---
+
+## `account_deletion_requests`
+
+This table is the minimal durable recovery record for deletion spanning
+Supabase Auth and PostgreSQL. `userId` is the Supabase/Profile UUID but is not a
+foreign key, because the request must survive Profile deletion temporarily.
+The row contains only `status`, `requestedAt`, `authDeletedAt`, `completedAt`,
+and `updatedAt`; it never stores email, profile fields, content, tokens, or
+error text. A check constraint permits only the timestamp combination valid
+for `requested`, `auth_deleted`, or `completed`.
+
+Completed rows are retained only for the configured short JWT/recovery window
+and then purged by the operator command. See
+`docs/FEATURES/account_deletion.md` for deletion policy, transaction boundaries,
+counter repair, and operational recovery.
+
+Developer invariant: every authenticated mutation acquires its user account
+advisory barrier before any domain row lock. Community mutations then retain
+the global Post → Comment → Report hierarchy. New write endpoints must preserve
+that ordering so account-deletion request races cannot introduce reverse lock
+paths.
 
 ---
 

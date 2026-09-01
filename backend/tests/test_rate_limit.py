@@ -22,7 +22,7 @@ from app.core.rate_limit import reset_rate_limit_storage
 from app.core.settings import settings
 from app.main import app
 from app.models.comment import Comment
-from app.models.enums import ReportStatus, UserRole
+from app.models.enums import AccountDeletionStatus, ReportStatus, UserRole
 
 client = TestClient(app)
 
@@ -106,6 +106,28 @@ def test_authenticated_route_returns_429_after_exceeding_the_limit():
 
     assert statuses[:limit] == [200] * limit
     assert statuses[limit] == 429
+
+
+def test_account_deletion_request_has_its_own_per_user_limit():
+    limit = settings.rate_limit_account_deletion_request_per_minute
+    user = _override_current_user()
+    deletion_request = SimpleNamespace(
+        user_id=user.id,
+        status=AccountDeletionStatus.requested,
+        requested_at=datetime.now(timezone.utc),
+    )
+    mock_db = MagicMock()
+    mock_db.execute.return_value.scalar_one.return_value = deletion_request
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    statuses = [
+        client.post("/me/account-deletion-request").status_code
+        for _ in range(limit + 1)
+    ]
+
+    assert statuses[:limit] == [202] * limit
+    assert statuses[limit] == 429
+    assert mock_db.commit.call_count == limit
 
 
 def test_community_write_route_has_its_own_per_user_limit():

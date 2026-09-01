@@ -401,6 +401,9 @@ def test_status_decision_query_requests_row_lock():
     _, profile = _user_and_profile()
     row = _report(status=ReportStatus.reviewed)
     db = _update_db(profile, row[0], row)
+    timeline = MagicMock()
+    timeline.attach_mock(db.connection.return_value.exec_driver_sql, "advisory")
+    timeline.attach_mock(db.execute, "execute")
 
     client.put(f"/reports/{row[0].id}/status", json={"status": "reviewed"})
 
@@ -408,12 +411,21 @@ def test_status_decision_query_requests_row_lock():
     assert "for update" not in sql[0]
     assert "from posts" in sql[1] and "for update" in sql[1]
     assert "from reports" in sql[2] and "for update" in sql[2]
+    assert [call[0] for call in timeline.method_calls[:4]] == [
+        "advisory",
+        "execute",
+        "execute",
+        "execute",
+    ]
 
 
 def test_comment_status_executes_post_then_comment_then_report_locks():
     _, profile = _user_and_profile()
     row = _report(kind="comment", status=ReportStatus.reviewed)
     db = _update_db(profile, row[0], row)
+    timeline = MagicMock()
+    timeline.attach_mock(db.connection.return_value.exec_driver_sql, "advisory")
+    timeline.attach_mock(db.execute, "execute")
 
     response = client.put(
         f"/reports/{row[0].id}/status", json={"status": "reviewed"}
@@ -426,6 +438,14 @@ def test_comment_status_executes_post_then_comment_then_report_locks():
     assert "from posts" in sql[2] and "for update" in sql[2]
     assert "from comments" in sql[3] and "for update" in sql[3]
     assert "from reports" in sql[4] and "for update" in sql[4]
+    assert [call[0] for call in timeline.method_calls[:6]] == [
+        "advisory",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+    ]
 
 
 @pytest.mark.parametrize(("kind", "hidden"), [("post", True), ("comment", False)])
@@ -463,6 +483,9 @@ def test_visibility_lock_order_is_target_first_and_report_last(kind):
     _, profile = _user_and_profile()
     row = _report(kind=kind)
     db = _update_db(profile, row[0], row)
+    timeline = MagicMock()
+    timeline.attach_mock(db.connection.return_value.exec_driver_sql, "advisory")
+    timeline.attach_mock(db.execute, "execute")
 
     response = client.put(
         f"/reports/{row[0].id}/target-visibility",
@@ -475,11 +498,18 @@ def test_visibility_lock_order_is_target_first_and_report_last(kind):
     if kind == "post":
         assert "from posts" in sql[1] and "for update" in sql[1]
         assert "from reports" in sql[2] and "for update" in sql[2]
+        expected_calls = 4
     else:
         assert "for update" not in sql[1]
         assert "from posts" in sql[2] and "for update" in sql[2]
         assert "from comments" in sql[3] and "for update" in sql[3]
         assert "from reports" in sql[4] and "for update" in sql[4]
+        expected_calls = 6
+    assert timeline.method_calls[0][0] == "advisory"
+    assert all(
+        call[0] == "execute"
+        for call in timeline.method_calls[1:expected_calls]
+    )
 
 
 def test_repeating_visibility_is_idempotent_without_commit_or_recount():

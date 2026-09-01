@@ -10,9 +10,9 @@ migration = import_module(
 )
 
 
-def test_visibility_migration_is_current_head():
+def test_visibility_migration_is_followed_by_account_deletion_migration():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_current_head() == migration.revision
+    assert scripts.get_revision(migration.revision).nextrev == {"f4c9d2a7e105"}
 
 
 def test_upgrade_adds_non_nullable_false_columns(monkeypatch):
