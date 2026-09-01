@@ -43,12 +43,16 @@ def _report(*, kind="post", status=ReportStatus.pending, created_at=None):
         updated_at=now,
     )
     post = (
-        SimpleNamespace(id=target_id, title="Post title", body="Post body")
+        SimpleNamespace(
+            id=target_id, title="Post title", body="Post body", is_hidden=False
+        )
         if kind == "post"
         else None
     )
     comment = (
-        SimpleNamespace(id=target_id, body="Comment body", post_id=None)
+        SimpleNamespace(
+            id=target_id, body="Comment body", post_id=None, is_hidden=False
+        )
         if kind == "comment"
         else None
     )
@@ -73,11 +77,38 @@ def _list_db(profile, rows):
 def _update_db(profile, report, context_row):
     db = MagicMock()
     db.get.return_value = profile
-    locked = MagicMock()
-    locked.scalar_one_or_none.return_value = report
+    preliminary = MagicMock()
+    preliminary.scalar_one_or_none.return_value = report
+    target = context_row[1] if report.post_id is not None else context_row[2]
+    target_lock = MagicMock()
+    target_lock.scalar_one_or_none.return_value = target
+    report_lock = MagicMock()
+    report_lock.scalar_one_or_none.return_value = report
     context = MagicMock()
     context.one.return_value = context_row
-    db.execute.side_effect = [locked, context]
+    context.one_or_none.return_value = context_row
+    if report.post_id is not None:
+        db.execute.side_effect = [
+            preliminary,
+            target_lock,
+            report_lock,
+            context,
+            context,
+        ]
+    else:
+        discovery = MagicMock()
+        discovery.scalar_one_or_none.return_value = target
+        parent_lock = MagicMock()
+        parent_lock.scalar_one_or_none.return_value = context_row[3]
+        db.execute.side_effect = [
+            preliminary,
+            discovery,
+            parent_lock,
+            target_lock,
+            report_lock,
+            context,
+            context,
+        ]
     app.dependency_overrides[get_db] = lambda: db
     return db
 
@@ -149,6 +180,7 @@ def test_get_reports_serializes_safe_post_context_only():
     data = client.get("/reports").json()[0]
 
     assert data["target_kind"] == "post"
+    assert data["target_is_hidden"] is False
     assert data["target_id"] == data["post"]["id"]
     assert data["post"]["title"] == "Post title"
     assert data["comment"] is None
@@ -164,6 +196,7 @@ def test_get_reports_serializes_comment_and_parent_post_context():
     data = client.get("/reports").json()[0]
 
     assert data["target_kind"] == "comment"
+    assert data["target_is_hidden"] is False
     assert data["comment"] == {
         "id": str(row[2].id),
         "body": "Comment body",
@@ -207,6 +240,7 @@ def test_pending_report_can_transition_to_terminal_status(resulting):
     assert response.status_code == 200
     assert response.json()["status"] == resulting.value
     assert row[0].status == resulting
+    assert row[1].is_hidden is False
     db.commit.assert_called_once_with()
 
 
@@ -370,5 +404,163 @@ def test_status_decision_query_requests_row_lock():
 
     client.put(f"/reports/{row[0].id}/status", json={"status": "reviewed"})
 
-    sql = str(db.execute.call_args_list[0].args[0]).lower()
-    assert "for update" in sql
+    sql = [str(call.args[0]).lower() for call in db.execute.call_args_list]
+    assert "for update" not in sql[0]
+    assert "from posts" in sql[1] and "for update" in sql[1]
+    assert "from reports" in sql[2] and "for update" in sql[2]
+
+
+def test_comment_status_executes_post_then_comment_then_report_locks():
+    _, profile = _user_and_profile()
+    row = _report(kind="comment", status=ReportStatus.reviewed)
+    db = _update_db(profile, row[0], row)
+
+    response = client.put(
+        f"/reports/{row[0].id}/status", json={"status": "reviewed"}
+    )
+
+    assert response.status_code == 200
+    sql = [str(call.args[0]).lower() for call in db.execute.call_args_list]
+    assert "from reports" in sql[0] and "for update" not in sql[0]
+    assert "from comments" in sql[1] and "for update" not in sql[1]
+    assert "from posts" in sql[2] and "for update" in sql[2]
+    assert "from comments" in sql[3] and "for update" in sql[3]
+    assert "from reports" in sql[4] and "for update" in sql[4]
+
+
+@pytest.mark.parametrize(("kind", "hidden"), [("post", True), ("comment", False)])
+def test_admin_can_hide_or_restore_target_without_changing_report_status(kind, hidden):
+    _, profile = _user_and_profile()
+    row = _report(kind=kind, status=ReportStatus.reviewed)
+    target = row[1] if kind == "post" else row[2]
+    target.is_hidden = not hidden
+    if kind == "comment":
+        row[3].comment_count = 9
+    db = _update_db(profile, row[0], row)
+    db.scalar.return_value = 4
+
+    response = client.put(
+        f"/reports/{row[0].id}/target-visibility",
+        json={"is_hidden": hidden},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["target_is_hidden"] is hidden
+    assert response.json()["status"] == "reviewed"
+    assert target.is_hidden is hidden
+    assert row[0].status == ReportStatus.reviewed
+    if kind == "comment":
+        assert row[3].comment_count == 4
+        count_sql = str(db.scalar.call_args.args[0]).lower()
+        assert "comments.is_hidden is false" in count_sql
+    else:
+        db.scalar.assert_not_called()
+    db.commit.assert_called_once_with()
+
+
+@pytest.mark.parametrize("kind", ["post", "comment"])
+def test_visibility_lock_order_is_target_first_and_report_last(kind):
+    _, profile = _user_and_profile()
+    row = _report(kind=kind)
+    db = _update_db(profile, row[0], row)
+
+    response = client.put(
+        f"/reports/{row[0].id}/target-visibility",
+        json={"is_hidden": True},
+    )
+
+    assert response.status_code == 200
+    sql = [str(call.args[0]).lower() for call in db.execute.call_args_list]
+    assert "for update" not in sql[0]
+    if kind == "post":
+        assert "from posts" in sql[1] and "for update" in sql[1]
+        assert "from reports" in sql[2] and "for update" in sql[2]
+    else:
+        assert "for update" not in sql[1]
+        assert "from posts" in sql[2] and "for update" in sql[2]
+        assert "from comments" in sql[3] and "for update" in sql[3]
+        assert "from reports" in sql[4] and "for update" in sql[4]
+
+
+def test_repeating_visibility_is_idempotent_without_commit_or_recount():
+    _, profile = _user_and_profile()
+    row = _report(kind="comment")
+    row[2].is_hidden = True
+    db = _update_db(profile, row[0], row)
+
+    response = client.put(
+        f"/reports/{row[0].id}/target-visibility",
+        json={"is_hidden": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["target_is_hidden"] is True
+    db.flush.assert_not_called()
+    db.scalar.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_comment_visibility_commit_failure_invokes_rollback_without_success():
+    _, profile = _user_and_profile()
+    row = _report(kind="comment")
+    row[3].comment_count = 7
+    db = _update_db(profile, row[0], row)
+    db.scalar.return_value = 3
+    db.commit.side_effect = SQLAlchemyError("commit failed")
+
+    with pytest.raises(SQLAlchemyError, match="commit failed"):
+        client.put(
+            f"/reports/{row[0].id}/target-visibility",
+            json={"is_hidden": True},
+        )
+
+    assert row[2].is_hidden is True
+    assert row[3].comment_count == 3
+    assert db.flush.call_count == 2
+    assert db.scalar.call_count == 1
+    db.commit.assert_called_once_with()
+    db.rollback.assert_called_once_with()
+
+
+def test_visibility_requires_authentication_and_strict_body():
+    report_id = uuid.uuid4()
+    assert client.put(
+        f"/reports/{report_id}/target-visibility", json={"is_hidden": True}
+    ).status_code == 401
+
+    _, profile = _user_and_profile()
+    _list_db(profile, [])
+    assert client.put(
+        f"/reports/{report_id}/target-visibility", json={}
+    ).status_code == 422
+    assert client.put(
+        f"/reports/{report_id}/target-visibility",
+        json={"is_hidden": True, "status": "reviewed"},
+    ).status_code == 422
+
+
+def test_visibility_revalidates_report_target_after_locking():
+    _, profile = _user_and_profile()
+    row = _report(kind="post")
+    original_target = row[1]
+    locked_report = SimpleNamespace(**vars(row[0]))
+    locked_report.post_id = uuid.uuid4()
+    preliminary = MagicMock()
+    preliminary.scalar_one_or_none.return_value = row[0]
+    target_lock = MagicMock()
+    target_lock.scalar_one_or_none.return_value = original_target
+    report_lock = MagicMock()
+    report_lock.scalar_one_or_none.return_value = locked_report
+    db = MagicMock()
+    db.get.return_value = profile
+    db.execute.side_effect = [preliminary, target_lock, report_lock]
+    app.dependency_overrides[get_db] = lambda: db
+
+    response = client.put(
+        f"/reports/{row[0].id}/target-visibility", json={"is_hidden": True}
+    )
+
+    assert response.status_code == 409
+    assert original_target.is_hidden is False
+    db.flush.assert_not_called()
+    db.commit.assert_not_called()

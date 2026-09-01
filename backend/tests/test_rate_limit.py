@@ -212,10 +212,17 @@ def test_post_and_comment_reports_share_a_community_write_scope():
     target.id = uuid.uuid4()
     target.post_id = uuid.uuid4()
     target.report_count = 0
-    result = MagicMock()
-    result.scalar_one_or_none.side_effect = [target, None] * limit
     mock_db = MagicMock()
-    mock_db.execute.return_value = result
+
+    def execute(statement):
+        result = MagicMock()
+        sql = str(statement).lower()
+        result.scalar_one_or_none.return_value = (
+            None if "from reports" in sql else target
+        )
+        return result
+
+    mock_db.execute.side_effect = execute
     mock_db.get.return_value = profile
     mock_db.scalar.return_value = 1
     app.dependency_overrides[get_db] = lambda: mock_db
@@ -315,13 +322,24 @@ def test_report_admin_write_has_its_own_scope():
         created_at=now,
         updated_at=now,
     )
-    post = SimpleNamespace(id=target_id, title="Title", body="Body")
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = report
-    result.one.return_value = (report, post, None, None)
+    post = SimpleNamespace(
+        id=target_id, title="Title", body="Body", is_hidden=False
+    )
     db = MagicMock()
     db.get.return_value = _full_profile(user.id, role=UserRole.admin)
-    db.execute.return_value = result
+
+    def execute(statement):
+        sql = str(statement).lower()
+        result = MagicMock()
+        if "join" in sql:
+            result.one_or_none.return_value = (report, post, None, None)
+        elif "from posts" in sql:
+            result.scalar_one_or_none.return_value = post
+        else:
+            result.scalar_one_or_none.return_value = report
+        return result
+
+    db.execute.side_effect = execute
     app.dependency_overrides[get_db] = lambda: db
 
     statuses = [
@@ -351,6 +369,58 @@ def test_report_admin_write_has_its_own_scope():
         },
     )
     assert response.status_code == 201
+
+
+def test_report_visibility_has_its_own_admin_write_scope():
+    limit = settings.rate_limit_admin_write_per_minute
+    user = _override_current_user()
+    now = datetime.now(timezone.utc)
+    target_id = uuid.uuid4()
+    report = SimpleNamespace(
+        id=uuid.uuid4(),
+        post_id=target_id,
+        comment_id=None,
+        reason="Reason",
+        status=ReportStatus.pending,
+        created_at=now,
+        updated_at=now,
+    )
+    post = SimpleNamespace(
+        id=target_id,
+        title="Title",
+        body="Body",
+        is_hidden=True,
+    )
+    db = MagicMock()
+    db.get.return_value = _full_profile(user.id, role=UserRole.admin)
+
+    def execute(statement):
+        sql = str(statement).lower()
+        result = MagicMock()
+        if "join" in sql:
+            result.one_or_none.return_value = (report, post, None, None)
+        elif "from posts" in sql:
+            result.scalar_one_or_none.return_value = post
+        else:
+            result.scalar_one_or_none.return_value = report
+        return result
+
+    db.execute.side_effect = execute
+    app.dependency_overrides[get_db] = lambda: db
+
+    statuses = [
+        client.put(
+            f"/reports/{report.id}/target-visibility",
+            json={"is_hidden": True},
+        ).status_code
+        for _ in range(limit + 1)
+    ]
+
+    assert statuses[:limit] == [200] * limit
+    assert statuses[limit] == 429
+    assert client.put(
+        f"/reports/{report.id}/status", json={"status": "reviewed"}
+    ).status_code == 200
 
 
 # --- /health is exempt ---------------------------------------------------

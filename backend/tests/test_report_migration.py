@@ -17,10 +17,10 @@ def _upgrade_sql(monkeypatch) -> str:
     return "\n".join(str(call.args[0]) for call in operations.execute.call_args_list)
 
 
-def test_reporting_migration_is_the_current_head():
+def test_reporting_migration_is_followed_by_visibility_migration():
     config = Config("alembic.ini")
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == migration.revision
+    assert scripts.get_revision(migration.revision).nextrev == {"e6a1c4f9b207"}
 
 
 def test_valid_legacy_targets_are_migrated_and_counts_recalculated(monkeypatch):

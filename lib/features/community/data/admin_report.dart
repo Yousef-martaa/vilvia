@@ -65,6 +65,7 @@ class AdminReport {
     required this.updatedAt,
     required this.targetKind,
     required this.targetId,
+    required this.targetIsHidden,
     this.post,
     this.comment,
   });
@@ -76,8 +77,22 @@ class AdminReport {
   final DateTime updatedAt;
   final ReportTargetKind targetKind;
   final String targetId;
+  final bool targetIsHidden;
   final ReportPostContext? post;
   final ReportCommentContext? comment;
+
+  AdminReport withTargetVisibility(bool targetIsHidden) => AdminReport(
+    id: id,
+    reason: reason,
+    status: status,
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+    targetKind: targetKind,
+    targetId: targetId,
+    targetIsHidden: targetIsHidden,
+    post: post,
+    comment: comment,
+  );
 
   factory AdminReport.fromJson(Map<String, dynamic> json) {
     try {
@@ -116,6 +131,7 @@ class AdminReport {
         updatedAt: DateTime.parse(json['updated_at'] as String),
         targetKind: targetKind,
         targetId: targetId,
+        targetIsHidden: json['target_is_hidden'] as bool,
         post: post,
         comment: comment,
       );

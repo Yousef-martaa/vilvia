@@ -62,6 +62,7 @@ def test_put_adds_server_owned_reaction_and_returns_authoritative_count():
     lock_sql = str(db.execute.call_args.args[0]).lower()
     assert "for update" in lock_sql
     assert "is_published is true" in lock_sql
+    assert "is_hidden is false" in lock_sql
     count_sql = str(db.scalar.call_args.args[0]).lower()
     assert "count(" in count_sql
     assert "post_reactions.post_id" in count_sql
@@ -112,6 +113,20 @@ def test_reaction_returns_404_for_missing_or_unpublished_post(method):
 
     assert response.status_code == 404
     db.get.assert_not_called()
+    db.commit.assert_not_called()
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+def test_reaction_hidden_post_uses_generic_not_found_without_mutation(method):
+    _, db, _ = reaction_db(post=False)
+
+    response = getattr(client, method)(f"/posts/{uuid.uuid4()}/reaction")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Post not found"}
+    assert "is_hidden is false" in str(db.execute.call_args.args[0]).lower()
+    db.add.assert_not_called()
+    db.delete.assert_not_called()
     db.commit.assert_not_called()
 
 

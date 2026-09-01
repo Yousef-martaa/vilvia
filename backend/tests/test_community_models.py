@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, ForeignKey
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey
 
 from app.models.comment import Comment
 from app.models.post import Post
@@ -27,6 +27,14 @@ def test_comment_author_references_profile_with_restricted_deletion():
 
 def test_comment_post_references_post_with_cascading_deletion():
     assert_foreign_key(Comment.__table__.c.post_id, "posts.id", "CASCADE")
+
+
+def test_community_visibility_is_non_nullable_and_defaults_false():
+    for column in (Post.__table__.c.is_hidden, Comment.__table__.c.is_hidden):
+        assert isinstance(column.type, Boolean)
+        assert column.nullable is False
+        assert column.default.arg is False
+        assert str(column.server_default.arg).lower() == "false"
 
 
 def test_post_reaction_uses_ownership_pair_as_primary_key():

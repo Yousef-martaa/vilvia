@@ -79,6 +79,7 @@ def test_get_comments_is_public_and_returns_oldest_first():
     assert response.status_code == 200
     assert [item["id"] for item in response.json()] == [str(c.id) for c in comments]
     comments_sql = str(db.execute.call_args_list[1].args[0]).lower()
+    assert "comments.is_hidden is false" in comments_sql
     assert "order by comments.created_at asc" in comments_sql
 
 
@@ -112,6 +113,47 @@ def test_get_comments_returns_404_for_missing_or_unpublished_post():
     assert response.status_code == 404
     sql = str(db.execute.call_args.args[0]).lower()
     assert "is_published is true" in sql
+    assert "is_hidden is false" in sql
+
+
+def test_get_comments_hidden_parent_uses_generic_not_found_response():
+    post_id = uuid.uuid4()
+    db = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = None
+    app.dependency_overrides[get_db] = lambda: db
+
+    response = client.get(f"/posts/{post_id}/comments")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Post not found"}
+    assert "is_hidden is false" in str(db.execute.call_args.args[0]).lower()
+    db.commit.assert_not_called()
+
+
+def test_get_comments_omits_hidden_comments():
+    post = make_post()
+    visible = make_comment(post_id=post.id)
+    hidden = make_comment(post_id=post.id)
+    hidden.is_hidden = True
+    db = MagicMock()
+    db.execute.side_effect = [
+        MagicMock(scalar_one_or_none=MagicMock(return_value=post)),
+        MagicMock(
+            scalars=MagicMock(
+                return_value=MagicMock(all=MagicMock(return_value=[visible]))
+            )
+        ),
+    ]
+    app.dependency_overrides[get_db] = lambda: db
+
+    response = client.get(f"/posts/{post.id}/comments")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [str(visible.id)]
+    assert str(hidden.id) not in {item["id"] for item in response.json()}
+    assert "comments.is_hidden is false" in str(
+        db.execute.call_args_list[1].args[0]
+    ).lower()
 
 
 def test_comment_response_excludes_internal_fields():
@@ -169,6 +211,7 @@ def test_create_comment_uses_profile_and_updates_count_in_one_commit():
     sql = str(db.execute.call_args.args[0]).lower()
     assert "for update" in sql
     assert "is_published is true" in sql
+    assert "is_hidden is false" in sql
 
 
 def test_create_comment_requires_authentication():
@@ -203,6 +246,19 @@ def test_create_comment_returns_404_for_missing_or_unpublished_post():
     db.commit.assert_not_called()
 
 
+def test_create_comment_hidden_parent_uses_generic_not_found_without_mutation():
+    post_id = uuid.uuid4()
+    _, db = override_user_and_db(post=None)
+
+    response = client.post(f"/posts/{post_id}/comments", json={"body": "Comment"})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Post not found"}
+    assert "is_hidden is false" in str(db.execute.call_args.args[0]).lower()
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+
+
 @pytest.mark.parametrize("body", ["", "   ", "x" * 2001])
 def test_create_comment_validates_body(body):
     post = make_post()
@@ -223,6 +279,7 @@ def test_create_comment_validates_body(body):
         "author_avatar_url",
         "reaction_count",
         "report_count",
+        "is_hidden",
         "created_at",
         "updated_at",
     ],

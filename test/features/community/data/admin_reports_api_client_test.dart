@@ -10,7 +10,10 @@ import 'package:vilvia/features/community/data/community_api_client.dart';
 void main() {
   const baseUrl = 'http://localhost';
 
-  Map<String, dynamic> reportJson({String status = 'pending'}) => {
+  Map<String, dynamic> reportJson({
+    String status = 'pending',
+    bool isHidden = false,
+  }) => {
     'id': 'report-1',
     'reason': 'Unsafe advice',
     'status': status,
@@ -18,6 +21,7 @@ void main() {
     'updated_at': '2026-08-30T10:00:00Z',
     'target_kind': 'comment',
     'target_id': 'comment-1',
+    'target_is_hidden': isHidden,
     'post': null,
     'comment': {
       'id': 'comment-1',
@@ -77,6 +81,30 @@ void main() {
     expect(report.status, ReportStatus.dismissed);
   });
 
+  test(
+    'updates target visibility through the exact authenticated path',
+    () async {
+      final api = CommunityApiClient(
+        baseUrl: baseUrl,
+        accessToken: () => 'token',
+        client: MockClient((request) async {
+          expect(request.method, 'PUT');
+          expect(request.url.path, '/reports/report-1/target-visibility');
+          expect(request.headers['Authorization'], 'Bearer token');
+          expect(jsonDecode(request.body), {'is_hidden': true});
+          return http.Response(jsonEncode(reportJson(isHidden: true)), 200);
+        }),
+      );
+
+      final report = await api.updateAdminReportTargetVisibility(
+        reportId: 'report-1',
+        isHidden: true,
+      );
+
+      expect(report.targetIsHidden, isTrue);
+    },
+  );
+
   test('admin calls fail locally without a session', () async {
     final api = CommunityApiClient(baseUrl: baseUrl);
 
@@ -85,6 +113,13 @@ void main() {
       api.updateAdminReportStatus(
         reportId: 'report-1',
         status: ReportStatus.reviewed,
+      ),
+      throwsStateError,
+    );
+    await expectLater(
+      api.updateAdminReportTargetVisibility(
+        reportId: 'report-1',
+        isHidden: true,
       ),
       throwsStateError,
     );
@@ -102,6 +137,13 @@ void main() {
       api.updateAdminReportStatus(
         reportId: 'report-1',
         status: ReportStatus.reviewed,
+      ),
+      throwsException,
+    );
+    await expectLater(
+      api.updateAdminReportTargetVisibility(
+        reportId: 'report-1',
+        isHidden: true,
       ),
       throwsException,
     );
@@ -155,6 +197,14 @@ void main() {
       final json = reportJson()..['created_at'] = 'not-a-timestamp';
 
       expect(() => AdminReport.fromJson(json), throwsFormatException);
+    });
+
+    test('rejects missing or non-Boolean visibility', () {
+      final missing = reportJson()..remove('target_is_hidden');
+      final malformed = reportJson()..['target_is_hidden'] = 'false';
+
+      expect(() => AdminReport.fromJson(missing), throwsFormatException);
+      expect(() => AdminReport.fromJson(malformed), throwsFormatException);
     });
 
     test('rejects incorrect JSON value types as FormatException', () {
