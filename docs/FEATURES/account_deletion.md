@@ -26,8 +26,19 @@ Admin-created Events are retained. Their existing `created_by` foreign key uses
 the Event. Resources are not user-owned and are unchanged. Report status and
 target visibility are unchanged for surviving content.
 
-Flutter UI, an external deletion page, and Play Console configuration are not
-part of this backend workflow.
+## In-app request flow
+
+Signed-in users can open Account from the home header, review the destructive
+deletion policy, and explicitly confirm before the app sends
+`POST /me/account-deletion-request`. The app supplies no user ID or policy
+fields. After any valid `202` lifecycle response (`requested`, `auth_deleted`,
+or `completed`) establishes durable acceptance, the app signs that same user
+out locally through `AuthService`. Fulfillment remains asynchronous and may not
+complete immediately.
+
+An external HTTPS deletion-request resource remains a separate release
+requirement. Play Console configuration is out of scope for this issue, so this
+in-app flow alone must not be described as completing Google Play compliance.
 
 ## Request API and mutation block
 

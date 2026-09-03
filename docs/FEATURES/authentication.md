@@ -87,9 +87,10 @@ Home, Resources, and Events remain fully usable without signing in.
 Still not implemented: password reset, email change, social login, MFA,
 profile editing, and no existing screen is gated behind authentication.
 
-The durable backend account-deletion request and operator fulfillment workflow
-are documented separately in `docs/FEATURES/account_deletion.md`. Flutter's
-in-app request UI and the external HTTPS request resource remain unimplemented.
+The durable backend account-deletion request, in-app confirmation flow, local
+sign-out after acceptance, and asynchronous operator fulfillment workflow are
+documented separately in `docs/FEATURES/account_deletion.md`. The external HTTPS
+request resource remains a separate release requirement.
 Because JWT leeway applies to both a future `iat` and an expired `exp`, completed
 deletion records are retained for at least the configured maximum token
 lifetime plus twice the configured clock skew.

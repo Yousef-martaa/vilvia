@@ -8,19 +8,19 @@ import 'package:vilvia/features/auth/data/auth_service.dart';
 import 'package:vilvia/features/home/presentation/widgets/home_header.dart';
 
 User _fakeUser({String email = 'parent@example.com'}) => User(
-      id: 'user-1',
-      appMetadata: const {},
-      userMetadata: const {},
-      aud: 'authenticated',
-      createdAt: '2024-01-01T00:00:00Z',
-      email: email,
-    );
+  id: 'user-1',
+  appMetadata: const {},
+  userMetadata: const {},
+  aud: 'authenticated',
+  createdAt: '2024-01-01T00:00:00Z',
+  email: email,
+);
 
 Session _fakeSession({String email = 'parent@example.com'}) => Session(
-      accessToken: 'fake-access-token',
-      tokenType: 'bearer',
-      user: _fakeUser(email: email),
-    );
+  accessToken: 'fake-access-token',
+  tokenType: 'bearer',
+  user: _fakeUser(email: email),
+);
 
 class _FakeAuthService extends AuthService {
   _FakeAuthService({Session? initialSession}) : currentSession = initialSession;
@@ -59,28 +59,32 @@ void main() {
     expect(find.text('Sign In'), findsOneWidget);
   });
 
-  testWidgets('shows the account email and a sign-out control when signed in',
-      (tester) async {
-    final authService =
-        _FakeAuthService(initialSession: _fakeSession(email: 'rowan@example.com'));
+  testWidgets('shows the account email as an Account entry when signed in', (
+    tester,
+  ) async {
+    final authService = _FakeAuthService(
+      initialSession: _fakeSession(email: 'rowan@example.com'),
+    );
     await tester.pumpWidget(wrap(authService));
     await tester.pump();
 
     expect(find.text('rowan@example.com'), findsOneWidget);
-    expect(find.byTooltip('Sign out'), findsOneWidget);
+    expect(find.byIcon(Icons.account_circle), findsOneWidget);
     expect(find.text('Sign In'), findsNothing);
   });
 
-  testWidgets('tapping sign out calls AuthService.signOut', (tester) async {
-    final authService =
-        _FakeAuthService(initialSession: _fakeSession(email: 'rowan@example.com'));
+  testWidgets('tapping the signed-in affordance opens Account', (tester) async {
+    final authService = _FakeAuthService(
+      initialSession: _fakeSession(email: 'rowan@example.com'),
+    );
     await tester.pumpWidget(wrap(authService));
     await tester.pump();
 
-    await tester.tap(find.byTooltip('Sign out'));
-    await tester.pump();
+    await tester.tap(find.text('rowan@example.com'));
+    await tester.pumpAndSettle();
 
-    expect(authService.signOutCalled, isTrue);
-    expect(find.text('Sign In'), findsOneWidget);
+    expect(find.text('Account'), findsOneWidget);
+    expect(find.text('Signed in as'), findsOneWidget);
+    expect(authService.signOutCalled, isFalse);
   });
 }
