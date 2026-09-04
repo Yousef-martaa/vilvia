@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # service-role key is optional and used only by the manually invoked,
     # operator-only account-deletion command.
     supabase_url: str = "https://project-id.supabase.co"
+    supabase_publishable_key: str = "pk-placeholder"
     supabase_service_role_key: SecretStr | None = None
     supabase_admin_timeout_seconds: float = 10.0
     supabase_access_token_max_lifetime_seconds: int = Field(default=3600, gt=0)

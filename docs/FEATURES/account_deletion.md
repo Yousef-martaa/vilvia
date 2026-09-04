@@ -37,7 +37,11 @@ out locally through `AuthService`. Fulfillment remains asynchronous and may not
 complete immediately.
 
 An external HTTPS deletion-request resource remains a separate release
-requirement. Play Console configuration is out of scope for this issue, so this
+requirement. The resource is available at `/deletion-request` and provides a
+standalone web interface for users to verify their identity and request
+destructive deletion without opening the app. Play Console configuration and
+HTTPS deployment of the API domain are required for this resource to be public.
+Play Console configuration is out of scope for this issue, so this
 in-app flow alone must not be described as completing Google Play compliance.
 
 ## Request API and mutation block
