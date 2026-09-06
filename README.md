@@ -39,6 +39,8 @@ localhost) if left unset — override it for web/desktop
 
 ## Run backend + frontend together
 
+**Desktop / Emulator / Web:**
+
 ```bash
 ./dev.sh
 ```
@@ -51,8 +53,19 @@ logs stay visible. Extra arguments are forwarded to `flutter run`, e.g.:
 ./dev.sh -d chrome
 ```
 
-Press Ctrl+C (or let Flutter exit) to stop; the backend is stopped
-automatically.
+**Physical Android Device (PowerShell):**
+
+```powershell
+.\dev-phone.ps1
+```
+
+Requires a connected Android device with USB debugging enabled. This script
+configures ADB reverse port forwarding (`8000 -> 8000`) so the phone can
+reach the backend on `localhost`, starts the backend in a new window, and
+launches the Flutter app.
+
+Press Ctrl+C (or let Flutter exit) to stop; the backend in the background (for `dev.sh`)
+is stopped automatically. For `dev-phone.ps1`, close the backend terminal manually.
 
 ## Run backend or frontend separately
 
