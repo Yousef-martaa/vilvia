@@ -23,7 +23,8 @@ Use this sequence:
 
 Issue → branch → inspect/plan → implementation → tests → strict review → fixes → final review → stage → commit → push → PR → merge → main cleanup
 
-- Before work, inspect the current branch, `git status --short`, relevant architecture/docs, tests, and recent patterns. Never assume a previous implementation is correct.
+- Before work, an agent must read the authoritative **`docs/PRODUCT_RELEASE_ROADMAP.md`** to confirm the project direction and the next prioritized item.
+- Inspect the current branch, `git status --short`, relevant architecture/docs, tests, and recent patterns. Never assume a previous implementation is correct.
 - Do not commit, push, merge, create a PR, or otherwise change remote state unless explicitly requested.
 - Stage only files in scope. Never stage unrelated or pre-existing changes.
 - Leave `.vscode/` and `design/` untouched unless explicitly requested.
