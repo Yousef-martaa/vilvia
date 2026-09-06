@@ -631,6 +631,8 @@ def test_completed_request_purge_rejects_zero_retention():
 def test_settings_accept_valid_account_deletion_retention():
     configured = Settings(
         _env_file=None,
+        supabase_url="https://test.supabase.co",
+        supabase_publishable_key="test-key",
         account_deletion_completed_retention_days=2,
         supabase_access_token_max_lifetime_seconds=86_000,
         supabase_jwt_clock_skew_seconds=400,
@@ -640,7 +642,11 @@ def test_settings_accept_valid_account_deletion_retention():
 
 
 def test_default_account_deletion_retention_is_safe():
-    configured = Settings(_env_file=None)
+    configured = Settings(
+        _env_file=None,
+        supabase_url="https://test.supabase.co",
+        supabase_publishable_key="test-key",
+    )
 
     assert configured.supabase_access_token_max_lifetime_seconds == 3600
     assert configured.supabase_jwt_clock_skew_seconds == 60
@@ -650,6 +656,8 @@ def test_default_account_deletion_retention_is_safe():
 def test_settings_accept_exact_retention_boundary():
     configured = Settings(
         _env_file=None,
+        supabase_url="https://test.supabase.co",
+        supabase_publishable_key="test-key",
         account_deletion_completed_retention_days=1,
         supabase_access_token_max_lifetime_seconds=86_000,
         supabase_jwt_clock_skew_seconds=200,
@@ -662,6 +670,8 @@ def test_settings_reject_retention_shorter_than_jwt_lifetime_and_skew():
     with pytest.raises(ValidationError, match="retention must cover"):
         Settings(
             _env_file=None,
+            supabase_url="https://test.supabase.co",
+            supabase_publishable_key="test-key",
             account_deletion_completed_retention_days=1,
             supabase_access_token_max_lifetime_seconds=86_001,
             supabase_jwt_clock_skew_seconds=200,

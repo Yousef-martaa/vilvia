@@ -19,14 +19,18 @@ if (-not (Test-Path $envFile)) {
 $supabaseUrl = ""
 $supabaseKey = ""
 Get-Content $envFile | ForEach-Object {
-    if ($_ -match "^SUPABASE_URL=(.*)") { $supabaseUrl = $matches[1].Trim() }
-    if ($_ -match "^SUPABASE_PUBLISHABLE_KEY=(.*)") { $supabaseKey = $matches[1].Trim() }
+    if ($_ -match "^SUPABASE_URL=(.*)") { $supabaseUrl = $matches[1].Trim().Trim("'").Trim('"') }
+    if ($_ -match "^SUPABASE_PUBLISHABLE_KEY=(.*)") { $supabaseKey = $matches[1].Trim().Trim("'").Trim('"') }
 }
 
 if ([string]::IsNullOrWhiteSpace($supabaseUrl) -or [string]::IsNullOrWhiteSpace($supabaseKey)) {
     Write-Host "Error: SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be set in .env" -ForegroundColor Red
     exit 1
 }
+
+# Export to environment for backend process inheritance
+$env:SUPABASE_URL = $supabaseUrl
+$env:SUPABASE_PUBLISHABLE_KEY = $supabaseKey
 
 # 1. Locate and verify ADB
 $adbPath = Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"

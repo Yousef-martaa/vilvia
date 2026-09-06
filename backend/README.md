@@ -38,6 +38,8 @@ cp .env.example .env
 ## Run
 
 ```bash
+# SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required environment variables.
+# They are loaded from .env if present.
 uvicorn app.main:app --reload
 ```
 
