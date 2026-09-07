@@ -51,12 +51,18 @@ Additional sign-in methods such as Google, Apple, or BankID may be added later i
 During registration, users will provide:
 
 - First name
+- Last name
 - Email address
 - Password
+- Parent/guardian role (Mother, Father, Guardian, or Prefer not to say)
 
-After registration, users will complete a short onboarding process to personalize their experience.
+The data is entered only once during Sign Up and survives the email
+verification step by being stored in Supabase's `user_metadata`. After
+registration, users confirm their email and sign in; the app automatically
+bootstraps their profile using the stored metadata if it doesn't exist yet.
 
-Additional profile information can be added later without changing the authentication flow.
+Additional profile information can be added later without changing the
+authentication flow.
 
 ---
 
@@ -99,32 +105,45 @@ lifetime plus twice the configured clock skew.
 
 ## Implementation (Issue: harden authentication and profile foundation)
 
-### Gender is a profile attribute, not an authorization role
+### Registration and profile bootstrap (Issue #118)
 
-`Profile.gender` (`male`/`female`) and `Profile.role` (`parent`/`admin`)
-are separate columns backed by separate enums (`Gender`, `UserRole` in
-`app/models/enums.py`). `gender` must never be used to grant or deny
-access to anything, and `role` must never be derived from it. A public
-signup always gets `role = parent`; there is no field on any request
-schema that can set `role`, so there is no mass-assignment path to
-`admin`.
+Profile provisioning is a separate, explicit step: `POST /me/bootstrap`
+creates the caller's `Profile` (id and email from the verified identity,
+first and last name and parent role from the request body, role always
+`parent`) if one doesn't exist yet, and is safe to call more than once.
+`GET /me` is read-only and returns 404 if no Profile exists yet -- it
+never creates one.
 
-### Migration compatibility: nullable column, required for new signups
+To avoid asking for profile data twice when email confirmation is enabled:
+1. `SignUpScreen` stores the profile data in Supabase `user_metadata`
+   during the `signUp` call.
+2. After email verification, the user signs in.
+3. `SignInScreen` checks if `GET /me` returns 404.
+4. If it does, and the session's user metadata contains the required
+   onboarding fields, it automatically calls `POST /me/bootstrap` before
+   entering the app.
+5. Legacy users or users who signed up before this flow was implemented
+   still see a one-time "Finish setting up" form if their metadata is
+   missing.
 
-`profiles.gender` is a **nullable** database column (migration
-`7101b67a47b8_add_profile_gender`), so existing rows created before this
-field existed are left as `gender = NULL` rather than being backfilled
-with a fabricated value.
+### Role is a profile attribute, not an authorization role
+`Profile.parent_role` (`mother`, `father`, `guardian`, `prefer_not_to_say`),
+`Profile.gender` (legacy), and `Profile.role` (`parent`/`admin`)
+are separate columns backed by separate enums. `parent_role` and `gender`
+must never be used to grant or deny access to anything, and `role`
+must never be derived from them. A public signup always gets `role = parent`.
 
-New profiles are different: `BootstrapRequest.gender` is a **required**
-field, validated as a `Gender` enum by Pydantic, so `POST /me/bootstrap`
-rejects a missing or invalid value with `422` before ever reaching the
-database. This split -- nullable at the schema layer, required at the
-application layer for new writes -- means:
+### Migration compatibility: nullable columns, optional parent role for new signups
+`profiles.last_name` and `profiles.parent_role` are **nullable** database
+columns (migration `fecdb3c7a299_add_profile_last_name_and_parent_role`),
+so existing rows are left as NULL.
 
-- Old accounts can keep working indefinitely with `gender = null` in
-  `GET /me`'s response.
-- Every *newly created* profile always has a real value.
+New profiles require `first_name` and `last_name`, so `POST /me/bootstrap`
+rejects missing name values with `422`. `parent_role` and `gender` are
+optional in the request -- a user may choose to omit their role or select
+a specific role (including "Prefer not to say").
+
+- Every *newly created* profile always has a real value for required name fields.
 - No backfill migration or "complete your profile" flow for legacy NULL
   rows is implemented in this issue -- deliberately deferred until there
   is a concrete feature that needs it, per the product's

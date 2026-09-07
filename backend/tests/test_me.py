@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import AuthenticatedUser, get_current_user, get_db
 from app.main import app
-from app.models.enums import Gender, UserRole
+from app.models.enums import Gender, ParentRole, UserRole
 
 client = TestClient(app)
 
@@ -30,9 +30,11 @@ def make_mock_profile(**kwargs):
     profile = MagicMock()
     profile.id = kwargs.get("id", uuid.uuid4())
     profile.first_name = kwargs.get("first_name", "Rowan")
+    profile.last_name = kwargs.get("last_name", "Smith")
     profile.email = kwargs.get("email", "parent@example.com")
     profile.role = kwargs.get("role", UserRole.parent)
     profile.gender = kwargs.get("gender", Gender.female)
+    profile.parent_role = kwargs.get("parent_role", ParentRole.mother)
     profile.created_at = kwargs.get("created_at", now)
     profile.updated_at = kwargs.get("updated_at", now)
     return profile
@@ -71,6 +73,30 @@ def test_get_me_returns_null_gender_for_a_legacy_profile():
     assert response.json()["gender"] is None
 
 
+def test_get_me_returns_legacy_profile_with_null_new_fields():
+    # Rows created before `last_name` and `parent_role` existed have no value
+    # and are not backfilled -- GET /me must surface them as null.
+    user = _override_current_user()
+    _mock_db_returning(
+        make_mock_profile(
+            id=user.id,
+            first_name="Rowan",
+            last_name=None,
+            parent_role=None,
+            gender=Gender.female,
+        )
+    )
+
+    response = client.get("/me")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["first_name"] == "Rowan"
+    assert data["last_name"] is None
+    assert data["parent_role"] is None
+    assert data["gender"] == "female"
+
+
 def test_get_me_returns_404_when_no_profile_exists():
     _override_current_user()
     _mock_db_returning(None)
@@ -103,11 +129,22 @@ def test_get_me_requires_authentication():
 def test_bootstrap_creates_profile_using_verified_identity():
     user = _override_current_user(email="new@example.com")
     mock_db = _mock_db_returning(
-        make_mock_profile(id=user.id, first_name="Rowan", email="new@example.com")
+        make_mock_profile(
+            id=user.id,
+            first_name="Rowan",
+            last_name="Smith",
+            email="new@example.com",
+            parent_role=ParentRole.mother,
+        )
     )
 
     response = client.post(
-        "/me/bootstrap", json={"first_name": "Rowan", "gender": "female"}
+        "/me/bootstrap",
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "mother",
+        },
     )
 
     assert response.status_code == 200
@@ -115,7 +152,8 @@ def test_bootstrap_creates_profile_using_verified_identity():
     assert insert_values["id"] == user.id
     assert insert_values["email"] == "new@example.com"
     assert insert_values["first_name"] == "Rowan"
-    assert insert_values["gender"] == Gender.female
+    assert insert_values["last_name"] == "Smith"
+    assert insert_values["parent_role"] == ParentRole.mother
     assert insert_values["role"] == UserRole.parent
 
 
@@ -127,7 +165,12 @@ def test_bootstrap_rejects_role_field_with_422():
 
     response = client.post(
         "/me/bootstrap",
-        json={"first_name": "Rowan", "gender": "male", "role": "admin"},
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "mother",
+            "role": "admin",
+        },
     )
 
     assert response.status_code == 422
@@ -138,7 +181,12 @@ def test_bootstrap_rejects_id_field_with_422():
 
     response = client.post(
         "/me/bootstrap",
-        json={"first_name": "Rowan", "gender": "male", "id": str(uuid.uuid4())},
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "mother",
+            "id": str(uuid.uuid4()),
+        },
     )
 
     assert response.status_code == 422
@@ -151,7 +199,8 @@ def test_bootstrap_rejects_email_field_with_422():
         "/me/bootstrap",
         json={
             "first_name": "Rowan",
-            "gender": "male",
+            "last_name": "Smith",
+            "parent_role": "mother",
             "email": "attacker@example.com",
         },
     )
@@ -164,7 +213,12 @@ def test_bootstrap_rejects_unknown_field_with_422():
 
     response = client.post(
         "/me/bootstrap",
-        json={"first_name": "Rowan", "gender": "male", "is_admin": True},
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "mother",
+            "is_admin": True,
+        },
     )
 
     assert response.status_code == 422
@@ -177,7 +231,11 @@ def test_bootstrap_is_idempotent_and_does_not_overwrite_an_existing_profile():
 
     response = client.post(
         "/me/bootstrap",
-        json={"first_name": "A Different Name", "gender": "female"},
+        json={
+            "first_name": "A Different Name",
+            "last_name": "Smith",
+            "parent_role": "mother",
+        },
     )
 
     # ON CONFLICT DO NOTHING means the already-existing row is untouched;
@@ -188,49 +246,118 @@ def test_bootstrap_is_idempotent_and_does_not_overwrite_an_existing_profile():
 
 def test_bootstrap_requires_first_name():
     _override_current_user()
-    response = client.post("/me/bootstrap", json={"gender": "male"})
+    response = client.post(
+        "/me/bootstrap", json={"last_name": "Smith", "parent_role": "mother"}
+    )
     assert response.status_code == 422
 
 
 def test_bootstrap_rejects_blank_first_name():
     _override_current_user()
     response = client.post(
-        "/me/bootstrap", json={"first_name": "", "gender": "male"}
+        "/me/bootstrap",
+        json={"first_name": "", "last_name": "Smith", "parent_role": "mother"},
     )
     assert response.status_code == 422
 
 
-def test_bootstrap_requires_gender():
-    _override_current_user()
-    response = client.post("/me/bootstrap", json={"first_name": "Rowan"})
-    assert response.status_code == 422
-
-
-def test_bootstrap_rejects_invalid_gender():
+def test_bootstrap_requires_last_name():
     _override_current_user()
     response = client.post(
-        "/me/bootstrap", json={"first_name": "Rowan", "gender": "nonbinary"}
+        "/me/bootstrap", json={"first_name": "Rowan", "parent_role": "mother"}
     )
     assert response.status_code == 422
 
 
-def test_bootstrap_persists_valid_gender():
+def test_bootstrap_rejects_blank_last_name():
+    _override_current_user()
+    response = client.post(
+        "/me/bootstrap", json={"first_name": "Rowan", "last_name": ""}
+    )
+    assert response.status_code == 422
+
+
+def test_bootstrap_rejects_last_name_over_200_chars():
+    _override_current_user()
+    response = client.post(
+        "/me/bootstrap", json={"first_name": "Rowan", "last_name": "A" * 201}
+    )
+    assert response.status_code == 422
+
+
+def test_bootstrap_accepts_last_name_200_chars():
     user = _override_current_user()
-    mock_db = _mock_db_returning(make_mock_profile(id=user.id, gender=Gender.male))
+    _mock_db_returning(
+        make_mock_profile(id=user.id, first_name="Rowan", last_name="A" * 200, parent_role=None)
+    )
+    response = client.post(
+        "/me/bootstrap", json={"first_name": "Rowan", "last_name": "A" * 200}
+    )
+    assert response.status_code == 200
+
+
+def test_bootstrap_without_parent_role_succeeds_and_persists_null():
+    user = _override_current_user()
+    mock_db = _mock_db_returning(
+        make_mock_profile(
+            id=user.id,
+            first_name="Rowan",
+            last_name="Smith",
+            parent_role=None,
+        )
+    )
+    response = client.post(
+        "/me/bootstrap", json={"first_name": "Rowan", "last_name": "Smith"}
+    )
+    assert response.status_code == 200
+    insert_values = mock_db.execute.call_args[0][0].compile().params
+    assert insert_values["first_name"] == "Rowan"
+    assert insert_values["last_name"] == "Smith"
+    assert insert_values["parent_role"] is None
+
+
+def test_bootstrap_rejects_invalid_parent_role():
+    _override_current_user()
+    response = client.post(
+        "/me/bootstrap",
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "cousin",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_bootstrap_persists_valid_parent_role():
+    user = _override_current_user()
+    mock_db = _mock_db_returning(
+        make_mock_profile(id=user.id, parent_role=ParentRole.father)
+    )
 
     response = client.post(
-        "/me/bootstrap", json={"first_name": "Rowan", "gender": "male"}
+        "/me/bootstrap",
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "father",
+        },
     )
 
     assert response.status_code == 200
     insert_values = mock_db.execute.call_args[0][0].compile().params
-    assert insert_values["gender"] == Gender.male
+    assert insert_values["parent_role"] == ParentRole.father
 
 
 def test_bootstrap_requires_authentication():
     app.dependency_overrides.clear()
     response = client.post(
-        "/me/bootstrap", json={"first_name": "Rowan", "gender": "male"}
+        "/me/bootstrap",
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "mother",
+        },
     )
     assert response.status_code == 401
 
@@ -242,12 +369,19 @@ def test_bootstrap_returns_409_and_rolls_back_on_conflicting_email():
     _override_current_user(email="taken@example.com")
     mock_db = MagicMock()
     mock_db.execute.side_effect = IntegrityError(
-        "INSERT ...", {}, Exception("duplicate key value violates unique constraint")
+        "INSERT ...",
+        {},
+        Exception("duplicate key value violates unique constraint"),
     )
     app.dependency_overrides[get_db] = lambda: mock_db
 
     response = client.post(
-        "/me/bootstrap", json={"first_name": "Rowan", "gender": "male"}
+        "/me/bootstrap",
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "mother",
+        },
     )
 
     assert response.status_code == 409
@@ -267,7 +401,12 @@ def test_bootstrap_returns_500_if_profile_is_unreadable_after_insert():
     app.dependency_overrides[get_db] = lambda: mock_db
 
     response = client.post(
-        "/me/bootstrap", json={"first_name": "Rowan", "gender": "male"}
+        "/me/bootstrap",
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "mother",
+        },
     )
 
     assert response.status_code == 500

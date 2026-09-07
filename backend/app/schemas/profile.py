@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import Gender, UserRole
+from app.models.enums import Gender, ParentRole, UserRole
 
 
 class ProfileResponse(BaseModel):
@@ -11,11 +11,13 @@ class ProfileResponse(BaseModel):
 
     id: uuid.UUID
     first_name: str
+    last_name: str | None
     email: str
     role: UserRole
     # Nullable: rows created before this field existed have no value and
     # are not backfilled -- see docs/FEATURES/authentication.md.
     gender: Gender | None
+    parent_role: ParentRole | None
     created_at: datetime
     updated_at: datetime
 
@@ -24,10 +26,8 @@ class BootstrapRequest(BaseModel):
     """Deliberately has no `id`, `email`, or `role` field: those come only
     from the verified identity / trusted backend logic, never the client.
 
-    `gender` is required here (unlike the nullable `Profile.gender`
-    column) -- this schema only governs *new* bootstrap requests, and
-    every new signup must choose one. Existing rows predating this field
-    stay NULL rather than being backfilled; see
+    `parent_role` and `gender` are optional here. Existing rows predating
+    these fields stay NULL rather than being backfilled; see
     docs/FEATURES/authentication.md.
 
     `extra="forbid"` makes that "no id/email/role field" guarantee fail
@@ -42,4 +42,6 @@ class BootstrapRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     first_name: str = Field(min_length=1, max_length=200)
-    gender: Gender
+    last_name: str = Field(min_length=1, max_length=200)
+    parent_role: ParentRole | None = None
+    gender: Gender | None = None

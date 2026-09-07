@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:vilvia/features/auth/data/auth_service.dart';
 import 'package:vilvia/features/auth/data/profile.dart';
@@ -27,13 +28,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
   late final bool _ownsProfileClient;
 
   final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   bool _isSubmitting = false;
   String? _error;
   bool _awaitingEmailConfirmation = false;
-  Gender? _gender;
+  ParentRole? _parentRole;
 
   @override
   void initState() {
@@ -50,31 +53,45 @@ class _SignUpScreenState extends State<SignUpScreen> {
   void dispose() {
     if (_ownsProfileClient) _profileApiClient.close();
     _firstNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
+  String _mapErrorMessage(Object error) {
+    if (error is AuthException) {
+      return error.message;
+    }
+    return 'Could not create account. Please try again.';
+  }
+
   Future<void> _submit() async {
-    // Validated here, before Supabase's signUp() is ever called: an empty
-    // or too-long first name would otherwise still create the Auth user,
-    // then fail bootstrap afterwards with a 422 -- leaving an
-    // authenticated account with no Profile for no reason. The backend's
-    // Pydantic validation (1-200 chars) remains the authoritative check;
-    // this only avoids creating an account we already know it will
-    // reject.
     final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final confirmPassword = _confirmPasswordController.text;
+
     if (firstName.isEmpty || firstName.length > 200) {
-      setState(() {
-        _error = 'Please enter a first name (1-200 characters).';
-      });
+      setState(() => _error = 'Please enter a first name (1-200 characters).');
       return;
     }
-
-    if (_gender == null) {
-      setState(() {
-        _error = 'Please select a gender.';
-      });
+    if (lastName.isEmpty || lastName.length > 200) {
+      setState(() => _error = 'Please enter a last name (1-200 characters).');
+      return;
+    }
+    if (email.isEmpty) {
+      setState(() => _error = 'Please enter an email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setState(() => _error = 'Password must be at least 6 characters.');
+      return;
+    }
+    if (password != confirmPassword) {
+      setState(() => _error = 'Passwords do not match.');
       return;
     }
 
@@ -85,19 +102,22 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     try {
       final response = await _authService.signUp(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
+        email: email,
+        password: password,
+        userMetadata: {
+          'first_name': firstName,
+          'last_name': lastName,
+          if (_parentRole != null) 'parent_role': _parentRole!.toJson(),
+        },
       );
 
       if (!mounted) return;
 
       if (response.session != null) {
-        // Signed in immediately: finish provisioning the Profile now,
-        // while the first name just typed on this screen is still
-        // available -- see the class doc for why this matters.
         await _profileApiClient.bootstrap(
           firstName: firstName,
-          gender: _gender!,
+          lastName: lastName,
+          parentRole: _parentRole,
         );
         if (!mounted) return;
         Navigator.of(context).pop();
@@ -116,7 +136,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
-        _error = e.toString();
+        _error = _mapErrorMessage(e);
       });
     }
   }
@@ -146,8 +166,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   const SizedBox(height: 20),
                   if (_awaitingEmailConfirmation)
                     Text(
-                      'Check your email to confirm your account, then come '
-                      'back and sign in.',
+                      'If this email is new, we’ve sent a confirmation link. '
+                      'If you already have an account, please sign in instead.',
                       style: textTheme.bodyLarge,
                     )
                   else ...[
@@ -155,6 +175,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       controller: _firstNameController,
                       decoration:
                           const InputDecoration(labelText: 'First name'),
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _lastNameController,
+                      decoration:
+                          const InputDecoration(labelText: 'Last name'),
                       textInputAction: TextInputAction.next,
                     ),
                     const SizedBox(height: 12),
@@ -170,23 +197,32 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       decoration:
                           const InputDecoration(labelText: 'Password'),
                       obscureText: true,
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _confirmPasswordController,
+                      decoration:
+                          const InputDecoration(labelText: 'Confirm Password'),
+                      obscureText: true,
                       textInputAction: TextInputAction.done,
                     ),
                     const SizedBox(height: 16),
-                    Text('Gender', style: textTheme.bodyMedium),
+                    Text('I am a...', style: textTheme.bodyMedium),
                     const SizedBox(height: 8),
-                    SegmentedButton<Gender>(
-                      segments: const [
-                        ButtonSegment(
-                            value: Gender.male, label: Text('Male')),
-                        ButtonSegment(
-                            value: Gender.female, label: Text('Female')),
-                      ],
-                      selected: _gender == null ? const {} : {_gender!},
+                    SegmentedButton<ParentRole>(
+                      segments: ParentRole.values
+                          .map((role) => ButtonSegment(
+                                value: role,
+                                label: Text(role.label),
+                              ))
+                          .toList(),
+                      selected: _parentRole == null ? const {} : {_parentRole!},
                       emptySelectionAllowed: true,
                       onSelectionChanged: (selected) {
                         setState(() {
-                          _gender = selected.isEmpty ? null : selected.first;
+                          _parentRole =
+                              selected.isEmpty ? null : selected.first;
                         });
                       },
                     ),

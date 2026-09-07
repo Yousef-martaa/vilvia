@@ -200,7 +200,12 @@ def test_pending_request_blocks_profile_bootstrap_without_write():
     app.dependency_overrides[get_db] = lambda: db
 
     response = client.post(
-        "/me/bootstrap", json={"first_name": "Rowan", "gender": "female"}
+        "/me/bootstrap",
+        json={
+            "first_name": "Rowan",
+            "last_name": "Smith",
+            "parent_role": "mother",
+        },
     )
 
     assert response.status_code == 409

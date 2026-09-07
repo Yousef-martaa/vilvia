@@ -45,9 +45,11 @@ def _full_profile(user_id, role=UserRole.parent):
     profile = MagicMock()
     profile.id = user_id
     profile.first_name = "Rowan"
+    profile.last_name = "Smith"
     profile.email = "parent@example.com"
     profile.role = role
     profile.gender = None
+    profile.parent_role = None
     profile.created_at = datetime.now(timezone.utc)
     profile.updated_at = datetime.now(timezone.utc)
     return profile
