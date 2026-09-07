@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:vilvia/features/auth/data/auth_service.dart';
 import 'package:vilvia/features/auth/data/profile.dart';
@@ -33,12 +34,13 @@ class _SignInScreenState extends State<SignInScreen> {
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _finishSetupNameController = TextEditingController();
+  final _finishSetupFirstNameController = TextEditingController();
+  final _finishSetupLastNameController = TextEditingController();
 
   bool _isSubmitting = false;
   String? _error;
   bool _needsProfileSetup = false;
-  Gender? _gender;
+  ParentRole? _parentRole;
 
   @override
   void initState() {
@@ -56,8 +58,16 @@ class _SignInScreenState extends State<SignInScreen> {
     if (_ownsProfileClient) _profileApiClient.close();
     _emailController.dispose();
     _passwordController.dispose();
-    _finishSetupNameController.dispose();
+    _finishSetupFirstNameController.dispose();
+    _finishSetupLastNameController.dispose();
     super.dispose();
+  }
+
+  String _mapErrorMessage(Object error, {required String fallback}) {
+    if (error is AuthException) {
+      return error.message;
+    }
+    return fallback;
   }
 
   Future<void> _submit() async {
@@ -76,7 +86,7 @@ class _SignInScreenState extends State<SignInScreen> {
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
-        _error = e.toString();
+        _error = _mapErrorMessage(e, fallback: 'Could not sign in. Please try again.');
       });
     }
   }
@@ -87,37 +97,83 @@ class _SignInScreenState extends State<SignInScreen> {
       if (!mounted) return;
       Navigator.of(context).pop();
     } on ProfileNotFoundException {
+      final metadata = _authService.currentSession?.user.userMetadata;
+      final firstName = metadata?['first_name'] as String?;
+      final lastName = metadata?['last_name'] as String?;
+      final parentRoleStr = metadata?['parent_role'] as String?;
+      ParentRole? parentRole;
+      if (parentRoleStr != null) {
+        try {
+          parentRole = ParentRole.fromJson(parentRoleStr);
+        } catch (_) {
+          parentRole = null;
+        }
+      }
+
+      // Check if we can auto-bootstrap from metadata
+      if (firstName != null &&
+          firstName.isNotEmpty &&
+          lastName != null &&
+          lastName.isNotEmpty) {
+        try {
+          await _profileApiClient.bootstrap(
+            firstName: firstName,
+            lastName: lastName,
+            parentRole: parentRole,
+          );
+          if (!mounted) return;
+          Navigator.of(context).pop();
+          return;
+        } catch (_) {
+          // Auto-bootstrap failed (e.g. transient network or backend error).
+          // Present prefilled form with error message so the user can retry.
+          if (!mounted) return;
+          setState(() {
+            _isSubmitting = false;
+            _error = 'Could not finish setting up your account. Please try again.';
+            _finishSetupFirstNameController.text = firstName;
+            _finishSetupLastNameController.text = lastName;
+            _parentRole = parentRole;
+            _needsProfileSetup = true;
+          });
+          return;
+        }
+      }
+
+      // Metadata was missing required fields (e.g. legacy account).
+      // Prefill whatever fields are available.
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
         _needsProfileSetup = true;
+        if (firstName != null && firstName.isNotEmpty) {
+          _finishSetupFirstNameController.text = firstName;
+        }
+        if (lastName != null && lastName.isNotEmpty) {
+          _finishSetupLastNameController.text = lastName;
+        }
+        if (parentRole != null) {
+          _parentRole = parentRole;
+        }
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
-        _error = e.toString();
+        _error = _mapErrorMessage(e, fallback: 'Failed to load profile. Please try again.');
       });
     }
   }
 
   Future<void> _completeSetup() async {
-    // Same first-name validation as SignUpScreen, applied here before
-    // bootstrap is called -- see that screen's _submit() for why this
-    // must happen before the network call, not just rely on the
-    // backend's 422.
-    final firstName = _finishSetupNameController.text.trim();
+    final firstName = _finishSetupFirstNameController.text.trim();
+    final lastName = _finishSetupLastNameController.text.trim();
     if (firstName.isEmpty || firstName.length > 200) {
-      setState(() {
-        _error = 'Please enter a first name (1-200 characters).';
-      });
+      setState(() => _error = 'Please enter a first name (1-200 characters).');
       return;
     }
-
-    if (_gender == null) {
-      setState(() {
-        _error = 'Please select a gender.';
-      });
+    if (lastName.isEmpty || lastName.length > 200) {
+      setState(() => _error = 'Please enter a last name (1-200 characters).');
       return;
     }
 
@@ -129,7 +185,8 @@ class _SignInScreenState extends State<SignInScreen> {
     try {
       await _profileApiClient.bootstrap(
         firstName: firstName,
-        gender: _gender!,
+        lastName: lastName,
+        parentRole: _parentRole,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -137,7 +194,7 @@ class _SignInScreenState extends State<SignInScreen> {
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
-        _error = e.toString();
+        _error = _mapErrorMessage(e, fallback: 'Failed to complete setup. Please try again.');
       });
     }
   }
@@ -170,31 +227,40 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: 20),
                   if (_needsProfileSetup) ...[
                     Text(
-                      "You're signed in, but we still need your name and "
-                      'gender to finish setting up your account.',
+                      "You're signed in, but we still need some details "
+                      'to finish setting up your account.',
                       style: textTheme.bodyLarge,
                     ),
                     const SizedBox(height: 16),
                     TextField(
-                      controller: _finishSetupNameController,
+                      controller: _finishSetupFirstNameController,
                       decoration:
                           const InputDecoration(labelText: 'First name'),
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _finishSetupLastNameController,
+                      decoration:
+                          const InputDecoration(labelText: 'Last name'),
+                      textInputAction: TextInputAction.next,
                     ),
                     const SizedBox(height: 16),
-                    Text('Gender', style: textTheme.bodyMedium),
+                    Text('I am a...', style: textTheme.bodyMedium),
                     const SizedBox(height: 8),
-                    SegmentedButton<Gender>(
-                      segments: const [
-                        ButtonSegment(
-                            value: Gender.male, label: Text('Male')),
-                        ButtonSegment(
-                            value: Gender.female, label: Text('Female')),
-                      ],
-                      selected: _gender == null ? const {} : {_gender!},
+                    SegmentedButton<ParentRole>(
+                      segments: ParentRole.values
+                          .map((role) => ButtonSegment(
+                                value: role,
+                                label: Text(role.label),
+                              ))
+                          .toList(),
+                      selected: _parentRole == null ? const {} : {_parentRole!},
                       emptySelectionAllowed: true,
                       onSelectionChanged: (selected) {
                         setState(() {
-                          _gender = selected.isEmpty ? null : selected.first;
+                          _parentRole =
+                              selected.isEmpty ? null : selected.first;
                         });
                       },
                     ),

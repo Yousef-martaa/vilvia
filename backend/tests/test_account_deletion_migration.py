@@ -10,9 +10,9 @@ migration = import_module(
 )
 
 
-def test_account_deletion_migration_is_current_single_head():
+def test_account_deletion_migration_is_followed_by_profile_migration():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == [migration.revision]
+    assert scripts.get_revision(migration.revision).nextrev == {"fecdb3c7a299"}
     assert migration.down_revision == "e6a1c4f9b207"
 
 

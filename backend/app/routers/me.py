@@ -89,9 +89,11 @@ def bootstrap_profile(
         .values(
             id=current_user.id,
             first_name=body.first_name,
+            last_name=body.last_name,
             email=current_user.email,
             role=UserRole.parent,
             gender=body.gender,
+            parent_role=body.parent_role,
         )
         .on_conflict_do_nothing(index_elements=[Profile.id])
     )

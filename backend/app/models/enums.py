@@ -16,6 +16,15 @@ class Gender(str, enum.Enum):
     female = "female"
 
 
+class ParentRole(str, enum.Enum):
+    """A user profile attribute describing their role in the family."""
+
+    mother = "mother"
+    father = "father"
+    guardian = "guardian"
+    prefer_not_to_say = "prefer_not_to_say"
+
+
 class ChildStage(str, enum.Enum):
     pregnancy = "pregnancy"
     newborn = "newborn"
